@@ -1,0 +1,25 @@
+# runtime artifacts
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# biliking runtime dirs
+output/
+work/
+logs/
+
+# local tools (ffmpeg etc.)
+.tools/
+
+# tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# secrets
+config.local.toml
+cookies.txt
+.env

@@ -1,0 +1,42 @@
+# BiliVideoKing 配置示例
+# 复制到以下任一位置生效：
+#   1) %APPDATA%\biliking\config.toml   （推荐，biliking config init 会写入）
+#   2) 当前目录 config.toml
+#   3) 用 --config <路径> 显式指定
+#
+# 优先级：CLI 参数 > 环境变量 > 本文件 > 默认值
+
+[paths]
+output_dir = "./output"
+work_dir = "./work"
+logs_dir = "./logs"
+# cookies = "C:/path/to/cookies.txt"        # 可选：下载需要登录态时使用
+# ffmpeg = "C:/tools/ffmpeg/bin/ffmpeg.exe" # 可选：未加入 PATH 时显式指定
+# ffprobe = "C:/tools/ffmpeg/bin/ffprobe.exe"
+
+[asr]
+engine = "faster-whisper"
+model = "large-v3"          # large-v3 | large-v3-turbo | medium | small
+device = "auto"             # auto | cuda | cpu
+compute_type = "auto"       # auto | float16 | int8_float16 | int8
+language = "zh"
+vad = true
+beam_size = 5
+filter_hallucinations = true
+
+[llm]
+# 任何 OpenAI 兼容服务均可：DeepSeek / OpenCode Zen / SiliconFlow / Ollama ...
+api_base = "https://api.deepseek.com/v1"
+api_key = ""                # 留空则读取环境变量 BILIKING_LLM_API_KEY 或 OPENAI_API_KEY
+model = "deepseek-chat"
+# refine_model = ""         # 可选：精修单独指定模型（默认用 model）
+# summary_model = ""        # 可选：总结单独指定模型（默认用 model）
+temperature = 0.2
+timeout_sec = 120
+max_retries = 3
+chunk_chars = 3500          # LLM 分块大小（字符数）
+
+[export]
+srt = false                 # 是否顺手导出 transcript.srt
+keep_media = false          # true 则保留视频/音频文件
+keep_audio = false          # true 则保留音频、只删视频

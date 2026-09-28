@@ -1,0 +1,60 @@
+[project]
+name = "biliking"
+version = "0.1.0"
+description = "BiliVideoKing：把 B 站视频变成可读、可检索、可追溯的 Markdown 知识文档"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "BiliVideoKing" }]
+dependencies = [
+    "typer>=0.15",
+    "rich>=13.9",
+    "pydantic>=2.10",
+    "tomli-w>=1.2",
+    "platformdirs>=4.3",
+    "yt-dlp>=2025.1.26",
+    "openai>=1.66",
+]
+
+[project.optional-dependencies]
+asr = [
+    "faster-whisper>=1.2.0",
+    "imageio-ffmpeg>=0.5.1",  # 自带静态 ffmpeg，免手动安装
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "ruff>=0.9",
+    "pyright>=1.1.390",
+]
+
+[project.scripts]
+biliking = "biliking.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/biliking"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/biliking/cli.py" = ["B008"]  # Typer 的 Option/Argument 必须写在函数默认值里
+
+[tool.pyright]
+include = ["src"]
+pythonVersion = "3.12"
+typeCheckingMode = "standard"
+reportMissingTypeStubs = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
