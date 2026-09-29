@@ -6,13 +6,22 @@ __pycache__/
 dist/
 build/
 
-# biliking runtime dirs
+# vidar runtime dirs
 output/
 work/
 logs/
 
 # local tools (ffmpeg etc.)
 .tools/
+
+# downloaded models (faster-whisper etc.)
+models/
+
+# machine-local config (contains absolute paths / maybe secrets)
+config.toml
+
+# ProjectDock 本地归档（仅本地保留、不上传、只增不删）
+versions/
 
 # tooling caches
 .pytest_cache/
