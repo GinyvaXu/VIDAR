@@ -1,6 +1,9 @@
 # -*- mode: python ; coding: utf-8 -*-
 """PyInstaller 打包配置：GUI + CLI 双 exe，共享同一份运行时目录（onedir）。
 
+默认“精简包”（不含 CUDA 运行时；N 卡用户用 `vidar gpu install` 按需安装）。
+设置环境变量 VIDAR_BUNDLE_CUDA=1 可打包内置 CUDA 的完整版。
+
 构建：
     uv run pyinstaller packaging/vidar.spec --noconfirm \
         --distpath dist --workpath build/pyinstaller
@@ -8,7 +11,7 @@
 产物：dist/VIDAR/
     ├── VIDAR.exe       （图形界面）
     ├── VIDAR-CLI.exe   （命令行）
-    └── _internal/              （Python 运行时 + CUDA + Qt + ffmpeg）
+    └── _internal/      （Python 运行时 + Qt；完整版另含 CUDA）
 """
 
 import os
@@ -17,6 +20,7 @@ import sysconfig
 from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, copy_metadata
 
 PROJECT_ROOT = os.path.abspath(os.path.join(SPECPATH, os.pardir))  # noqa: F821
+INCLUDE_CUDA = os.environ.get("VIDAR_BUNDLE_CUDA", "0") == "1"
 
 # --------------------------------------------------------------------------- #
 # 数据文件与二进制
@@ -29,26 +33,24 @@ for package in ("vidar", "yt-dlp"):
     except Exception:  # noqa: BLE001 - 元数据缺失不影响运行
         pass
 
-# imageio-ffmpeg 自带静态 ffmpeg（音频转码兜底）
-datas += collect_data_files("imageio_ffmpeg")
 # faster-whisper 资源文件（Silero VAD onnx 模型等，必需）
 datas += collect_data_files("faster_whisper")
 
 # CTranslate2 原生库
 binaries = list(collect_dynamic_libs("ctranslate2"))
 
-# CUDA 运行时：pip 安装的 nvidia-* 包（Windows + NVIDIA 显卡）
-purelib = sysconfig.get_paths()["purelib"]
-for package in ("cublas", "cudnn", "cuda_runtime", "cuda_nvrtc"):
-    source = os.path.join(purelib, "nvidia", package, "bin")
-    if os.path.isdir(source):
-        for filename in os.listdir(source):
-            if filename.lower().endswith(".dll"):
-                binaries.append((os.path.join(source, filename), f"nvidia/{package}/bin"))
+# CUDA 运行时：默认不打包（主包精简）；VIDAR_BUNDLE_CUDA=1 时全量打包
+if INCLUDE_CUDA:
+    purelib = sysconfig.get_paths()["purelib"]
+    for package in ("cublas", "cudnn", "cuda_runtime", "cuda_nvrtc"):
+        source = os.path.join(purelib, "nvidia", package, "bin")
+        if os.path.isdir(source):
+            for filename in os.listdir(source):
+                if filename.lower().endswith(".dll"):
+                    binaries.append((os.path.join(source, filename), f"nvidia/{package}/bin"))
 
 hiddenimports = [
     "nvidia",  # namespace package，静态分析不识别
-    "imageio_ffmpeg",
     "yt_dlp",
     "faster_whisper",
     "ctranslate2",

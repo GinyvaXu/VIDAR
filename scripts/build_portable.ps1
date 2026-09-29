@@ -5,7 +5,8 @@
 
 param(
     [switch]$SkipSync,
-    [switch]$Archive
+    [switch]$Archive,
+    [switch]$WithCuda   # 打全量版（内置 CUDA 运行时，约 2.4GB）；默认精简包（约 0.4GB）
 )
 
 $ErrorActionPreference = "Stop"
@@ -18,6 +19,8 @@ if (-not (Test-Path $uv)) { throw "未找到 uv，请先安装：https://docs.as
 if (-not $SkipSync) {
     & $uv sync --extra asr --extra gui
 }
+
+if ($WithCuda) { $env:VIDAR_BUNDLE_CUDA = "1" } else { Remove-Item Env:VIDAR_BUNDLE_CUDA -ErrorAction SilentlyContinue }
 
 & $uv run pyinstaller packaging/vidar.spec --noconfirm --distpath dist --workpath build/pyinstaller
 

@@ -7,7 +7,7 @@
 | 主要框架 | Typer + Rich（CLI）、PySide6 / Qt（桌面 GUI）、pydantic v2（数据模型与配置） |
 | 数据存储 | 无数据库；文件式产物（JSON 中间态 + Markdown 成品），目录 `work/`、`output/` |
 | 前端 | PySide6 桌面界面（跟随系统主题，单窗口） |
-| 构建与打包 | PyInstaller onedir 便携包（内置 CUDA 运行时、ffmpeg、Qt） |
+| 构建与打包 | PyInstaller onedir 便携包（默认精简约 250MB；GPU 运行时按需 `gpu install`；Qt 内置） |
 | 测试 | pytest（30 个用例）+ ruff 静态检查 |
 | 外部服务 | 任意 OpenAI 兼容 LLM 端点（当前：OpenCode Go / deepseek-v4.1-flash） |
 | 关键第三方库 | yt-dlp（下载）、faster-whisper + CTranslate2（ASR）、imageio-ffmpeg（转码兜底）、openai（SDK） |
@@ -18,9 +18,13 @@
 - **实现逻辑**：BV 号 / URL → yt-dlp 解析元信息（标题、UP、时长、发布时间）→ 仅下载最佳音频流 → ffmpeg 转 16kHz 单声道 WAV。
 - **技术手段**：yt-dlp + ffmpeg（系统版优先、`imageio-ffmpeg` 静态版兜底）；只下音频可省约 90% 流量与下载时间。
 
+### 音频解码（PyAV）
+- **实现逻辑**：把下载到的音频（m4a 等）解码为 16kHz 单声道 16-bit PCM WAV，作为 ASR 输入。
+- **技术手段**：faster-whisper 内置的 `decode_audio`（PyAV 底层解码）+ 标准库 `wave` 写盘；不依赖外部 ffmpeg（ffmpeg 降级为可选组件，仅用于探测等扩展能力）。
+
 ### 语音识别（ASR）
 - **实现逻辑**：faster-whisper large-v3（CUDA/float16）识别 → VAD 过滤静音段 + 关闭上下文回溯防复读 → 幻听短语黑名单过滤 → 按「40 字或 1.2 秒停顿」合并为阅读级段落，输出词级时间戳 `asr.json`。
-- **技术手段**：CTranslate2 / faster-whisper + Silero VAD（onnxruntime）；Windows 自动注册 pip 安装（或便携包内置）的 cuBLAS / cuDNN DLL 搜索路径，解决 `cublas64_12.dll not found`；模型支持 HF ID 与本地目录，并对便携包内 `./models/<名字>` 做自动回退。
+- **技术手段**：CTranslate2 / faster-whisper + Silero VAD（onnxruntime）；Windows 自动注册 pip 安装（或便携包内置）的 cuBLAS / cuDNN DLL 搜索路径，解决 `cublas64_12.dll not found`；便携包可运行 `vidar gpu install` 从 PyPI 镜像按需安装（默认只提取实测最小集，约 1.5GB 磁盘）；模型支持 HF ID 与本地目录，并对便携包内 `./models/<名字>` 做自动回退。
 
 ### 文稿精修（LLM 段级）
 - **实现逻辑**：按 ~3500 字分块，块内逐段独立改写（去口水词、纠错别字、统一术语标点），要求输出与段号 1:1；缺失段落二次补修，明显被压缩的段落回退原文。
@@ -42,6 +46,6 @@
 - **实现逻辑**：单窗口完成「粘贴链接 → 开始 / 取消 → 步骤进度 + 实时日志 → 打开文稿」；历史任务双击定位未完成步骤；设置面板写回 `config.toml`。
 - **技术手段**：PySide6 / Qt（QThread + 信号槽跨线程回传事件与日志，logging handler 转 UI 信号）。
 
-### 便携版构建
-- **实现逻辑**：PyInstaller onedir 打包 GUI 与 CLI 双 exe（共享运行时目录），内置 CUDA 运行时 DLL、静态 ffmpeg、Qt 库；双击 exe 即用，模型目录外置（约 3GB，可复制）。
-- **技术手段**：自定义 `.spec`（双 Analysis + 单 COLLECT）、`nvidia-*` pip 包 DLL 收集、`_MEIPASS` / exe 目录多路径回退；`scripts/build_portable.ps1` 一键构建与归档。
+### 便携版构建与 GPU 按需安装
+- **实现逻辑**：PyInstaller onedir 打包 GUI 与 CLI 双 exe（共享运行时目录）。默认**精简包**（约 250MB，不含 CUDA，音频解码用 PyAV 无需 ffmpeg）；N 卡用户运行 `vidar gpu install` 从 PyPI 镜像安装 cuBLAS/cuDNN 实测最小集；`build_portable.ps1 -WithCuda` 可构建内置 CUDA 的完整版。模型目录外置（约 3GB，可复制）。
+- **技术手段**：自定义 `.spec`（双 Analysis + 单 COLLECT，`VIDAR_BUNDLE_CUDA` 开关）；从 nvidia wheel（zip）按白名单提取 DLL（剔除 adv/nvrtc 等非必需项，省约 474MB）；`_MEIPASS` / exe 目录多路径回退；`scripts/build_portable.ps1` 一键构建与归档。

@@ -9,6 +9,7 @@ VIDAR {{VERSION}} 便携版（Windows x64）
   VIDAR-CLI.exe run BV号 --from refine      从某步续跑
   VIDAR-CLI.exe model download large-v3     辅助下载 ASR 模型（推荐）
   VIDAR-CLI.exe model check large-v3        校验模型完整性
+  VIDAR-CLI.exe gpu install                 N 卡加速：安装 GPU 运行时（可选）
   VIDAR-CLI.exe doctor --net                环境自检（含网络）
   VIDAR-CLI.exe --help                      全部命令
 
@@ -17,6 +18,13 @@ VIDAR {{VERSION}} 便携版（Windows x64）
       VIDAR-CLI.exe model download large-v3
   方式二（手动）：下载 5 个文件放入 本目录\models\faster-whisper-large-v3\
       链接与校验方式见项目 README「模型下载」
+
+【GPU 加速】（可选，推荐 N 卡用户）
+  主包为保持轻量不含 CUDA 运行时；在本目录执行：
+      VIDAR-CLI.exe gpu install
+  自动从 PyPI 镜像下载并安装 cuBLAS/cuDNN（约 1.2GB 下载 / 1.5GB 磁盘）。
+  验证：VIDAR-CLI.exe doctor（faster-whisper 行显示 "CUDA 设备 1"）
+  无 N 卡可跳过：会自动使用 CPU（速度较慢）。
 
 【LLM 配置】
   任意 OpenAI 兼容服务；Key 可放环境变量（如 OPENCODE_GO_API_KEY），
@@ -28,8 +36,8 @@ VIDAR {{VERSION}} 便携版（Windows x64）
   logs\     运行日志
 
 【硬件】
-  建议 NVIDIA 显卡（内置 CUDA 运行时，无需另装 CUDA/cuDNN）；
-  无独显时自动回退 CPU，识别速度会明显变慢。
+  建议 NVIDIA 显卡（运行 gpu install 后启用；无独显自动回退 CPU）；
+  音频解码无需 ffmpeg（内置 PyAV）。
 
 【合规】
   仅供个人学习研究使用，请遵守 B 站用户协议与版权法律，勿传播下载内容。

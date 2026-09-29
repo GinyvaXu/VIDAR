@@ -1,5 +1,15 @@
 # 更新日志
 
+## [0.3.1] - 2026-09-29
+### Added
+- `vidar gpu install`：从 PyPI 镜像一键安装 GPU 运行时（cuBLAS/cuDNN 实测最小集，约 1.2GB 下载 / 1.5GB 磁盘）
+- doctor：无 CUDA 时提示 `vidar gpu install`；ffmpeg 改为可选（缺失仅警告）
+
+### Changed
+- 便携版主包精简：移除内置 CUDA 运行时（2.0GB）与静态 ffmpeg（84MB），zip 从 1.47GB 降至约 0.25GB
+  （需要内置 CUDA 的完整版仍可用 `scripts/build_portable.ps1 -WithCuda` 构建）
+- 音频解码改用 PyAV（faster-whisper 自带），不再依赖外部 ffmpeg
+
 ## [0.3.0] - 2026-09-29
 ### Added
 - `vidar model download` / `vidar model check`：ASR 模型辅助下载（分片并行、断点续传、大小校验，默认 hf-mirror 源）

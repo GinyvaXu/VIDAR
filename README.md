@@ -40,7 +40,7 @@ BV链接 → 解析视频信息 → 下载（仅音频） → 语音识别（ASR
 - 📝 **知识库导出**：`notes.md`（带 frontmatter，兼容 Obsidian）/ `outline.md` / 逐字稿 / `meta.json`（含 token 统计）
 - 🖥️ **图形界面**：步骤进度、实时日志、历史任务续跑、设置面板（PySide6）
 - 🔁 **断点续跑**：8 步状态机，取消/崩溃后随时续传，已完成步骤自动跳过
-- 📦 **便携版**：GUI + CLI 双 exe，内置 CUDA 运行时与 ffmpeg，双击即用
+- 📦 **便携版**：GUI + CLI 双 exe，主包约 250MB；N 卡一键接入 GPU（`VIDAR-CLI.exe gpu install`）
 - 🔌 **模型自由**：任意 OpenAI 兼容 LLM（OpenCode Go / DeepSeek / SiliconFlow / Ollama…）
 
 ## 快速开始
@@ -63,19 +63,23 @@ uv run vidar run "BV1xx411c7mD"                      # CLI 全流程
 uv run vidar run "BV1xx411c7mD" --from refine        # 从中间步骤续跑
 ```
 
-> `ffmpeg` 无需手动安装：`uv sync --extra asr` 会附带静态版 ffmpeg（有系统 ffmpeg 时优先用系统版）。
+> 音频解码内置（PyAV / faster-whisper），**无需安装 ffmpeg**；安装系统 ffmpeg 可获得可选探测能力。
 
 ### 便携版（Windows，免环境）
 
 ```powershell
-# 方式一：从 Releases 下载（推荐普通用户）
+# 方式一：从 Releases 下载（推荐普通用户；主包约 250MB）
 #   https://github.com/GinyvaXu/VIDAR/releases/latest
-# 方式二：自行构建（约 2.4GB，内置 CUDA 运行时 / ffmpeg / Qt）
+# 方式二：自行构建（默认精简包；-WithCuda 打内置 CUDA 的完整版）
 powershell -ExecutionPolicy Bypass -File scripts\build_portable.ps1 -Archive
 ```
 
-构建产物（约 2.4GB，内置 CUDA 运行时 / ffmpeg / Qt）：`versions/vX.Y.Z/dist/VIDAR-vX.Y.Z-win64-portable/`
-内含 `VIDAR.exe`（GUI）、`VIDAR-CLI.exe`（命令行）、`config.toml`、`使用说明.txt`。
+- **主包精简（约 250MB）**：不含 CUDA 运行时；N 卡用户跑一条命令按需安装：
+  ```powershell
+  VIDAR-CLI.exe gpu install     # 从 PyPI 镜像下载 cuBLAS/cuDNN（约 1.2GB，实测最小集）
+  ```
+- 完整内置版（解压后约 2.4GB，开箱即用 GPU）：`build_portable.ps1 -WithCuda`
+- 产物内含 `VIDAR.exe`（GUI）、`VIDAR-CLI.exe`（命令行）、`config.toml`、`使用说明.txt`
 
 ## 模型下载（必须一次，约 3.1GB）
 
@@ -190,7 +194,14 @@ output/20260626_BV1ed7q63EVZ_视频标题/
 <details>
 <summary>报错 cublas64_12.dll / cudnn 相关？</summary>
 
-`uv sync --extra asr` 已随包安装 CUDA 运行时并自动注册搜索路径，正常不会出现；若手动装过旧版依赖，重新 `uv sync --extra asr` 即可。
+- **便携版**：运行 `VIDAR-CLI.exe gpu install` 一键安装 GPU 运行时（从 PyPI 镜像下载，约 1.2GB）
+- **源码运行**：`uv sync --extra asr` 已包含 CUDA 运行时并自动注册搜索路径，正常不会出现；若装过旧版依赖，重新 `uv sync --extra asr` 即可
+</details>
+
+<details>
+<summary>便携版识别很慢，没走 GPU？</summary>
+
+主包默认不含 CUDA 运行时。运行 `VIDAR-CLI.exe gpu install` 安装后，用 `VIDAR-CLI.exe doctor` 确认 `faster-whisper` 行显示「CUDA 设备 1」即可。
 </details>
 
 <details>
