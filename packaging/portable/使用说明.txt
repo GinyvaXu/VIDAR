@@ -1,24 +1,26 @@
-VIDAR v0.2.0 便携版（Windows x64）
+VIDAR {{VERSION}} 便携版（Windows x64）
 ==========================================
 
 【启动图形界面】
   双击 VIDAR.exe
 
 【命令行模式】（在本目录打开终端）
-  VIDAR-CLI.exe run BV号           全流程处理
-  VIDAR-CLI.exe run BV号 --from refine   从某步续跑
-  VIDAR-CLI.exe doctor --net       环境自检（含网络）
-  VIDAR-CLI.exe --help             全部命令
+  VIDAR-CLI.exe run BV号                    全流程处理
+  VIDAR-CLI.exe run BV号 --from refine      从某步续跑
+  VIDAR-CLI.exe model download large-v3     辅助下载 ASR 模型（推荐）
+  VIDAR-CLI.exe model check large-v3        校验模型完整性
+  VIDAR-CLI.exe doctor --net                环境自检（含网络）
+  VIDAR-CLI.exe --help                      全部命令
 
-【ASR 模型】（约 3.1GB，未随包分发）
-  - 本机：config.toml 已指向已下载的模型目录，开箱即用
-  - 其他机器：把 5 个模型文件复制到 本目录\models\faster-whisper-large-v3\，
-    并把 config.toml 里 model 改为 "./models/faster-whisper-large-v3"
-  - 模型下载地址见项目 README「手动下载 ASR 模型」
+【ASR 模型】（约 3.1GB，未随包分发，二选一）
+  方式一（推荐）：在本目录执行
+      VIDAR-CLI.exe model download large-v3
+  方式二（手动）：下载 5 个文件放入 本目录\models\faster-whisper-large-v3\
+      链接与校验方式见项目 README「模型下载」
 
 【LLM 配置】
-  默认 OpenCode Go（deepseek-v4.1-flash），Key 读取环境变量 OPENCODE_GO_API_KEY；
-  也可在图形界面「设置」里直接填写（保存到本目录 config.toml）。
+  任意 OpenAI 兼容服务；Key 可放环境变量（如 OPENCODE_GO_API_KEY），
+  或在图形界面「设置」里填写（保存到本目录 config.toml）。
 
 【目录说明】
   output\   最终 Markdown 知识文档
@@ -31,3 +33,5 @@ VIDAR v0.2.0 便携版（Windows x64）
 
 【合规】
   仅供个人学习研究使用，请遵守 B 站用户协议与版权法律，勿传播下载内容。
+
+项目主页 / 问题反馈：https://github.com/GinyvaXu/VIDAR

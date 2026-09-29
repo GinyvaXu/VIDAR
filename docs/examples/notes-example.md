@@ -6,7 +6,7 @@ up: "胡说老王讲干货"
 published: 2026-06-26
 duration: "22:49"
 processed_at: 2026-09-28 23:05
-asr: "faster-whisper / C:/AIAgentBase/Project5-BiliVideoKing/models/faster-whisper-large-v3"
+asr: "faster-whisper / large-v3"
 llm: "deepseek-v4.1-flash"
 ---
 

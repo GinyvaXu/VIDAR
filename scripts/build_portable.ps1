@@ -21,12 +21,14 @@ if (-not $SkipSync) {
 
 & $uv run pyinstaller packaging/vidar.spec --noconfirm --distpath dist --workpath build/pyinstaller
 
+$version = (Get-Content VERSION -Raw).Trim()
+
 $portable = "dist/VIDAR"
 Copy-Item "packaging/portable/config.toml" "$portable/config.toml" -Force
-Copy-Item "packaging/portable/使用说明.txt" "$portable/使用说明.txt" -Force
+$notes = (Get-Content "packaging/portable/使用说明.txt" -Raw -Encoding UTF8).Replace("{{VERSION}}", "v$version")
+[IO.File]::WriteAllText((Join-Path $portable "使用说明.txt"), $notes, (New-Object System.Text.UTF8Encoding($true)))
 New-Item -ItemType Directory -Force "$portable/models" | Out-Null
 
-$version = (Get-Content VERSION -Raw).Trim()
 if ($Archive) {
     $dest = "versions/v$version/dist/VIDAR-v$version-win64-portable"
     if (Test-Path $dest) { throw "归档目标已存在，拒绝覆盖旧产物：$dest" }

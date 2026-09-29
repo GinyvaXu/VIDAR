@@ -68,6 +68,9 @@ uv run vidar run "BV1xx411c7mD" --from refine        # 从中间步骤续跑
 ### 便携版（Windows，免环境）
 
 ```powershell
+# 方式一：从 Releases 下载（推荐普通用户）
+#   https://github.com/GinyvaXu/VIDAR/releases/latest
+# 方式二：自行构建（约 2.4GB，内置 CUDA 运行时 / ffmpeg / Qt）
 powershell -ExecutionPolicy Bypass -File scripts\build_portable.ps1 -Archive
 ```
 
