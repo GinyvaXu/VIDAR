@@ -41,10 +41,9 @@ def _check_ffmpeg(settings: Settings) -> CheckResult:
     if not exe:
         return CheckResult(
             "ffmpeg",
-            STATUS_FAIL,
-            "未找到",
-            "uv sync --extra asr 会自动附带 imageio-ffmpeg；"
-            "或 winget install Gyan.FFmpeg 并在 config.toml 配置 paths.ffmpeg",
+            STATUS_WARN,
+            "未安装（可选）",
+            "音频解码已内置（PyAV）；如需 ffprobe 等扩展能力可自行安装并在 config.toml 配置",
         )
     return CheckResult("ffmpeg", STATUS_OK, f"{ffmpeg_version(exe) or '未知版本'}（{exe}）")
 
@@ -110,15 +109,23 @@ def _check_asr(settings: Settings) -> CheckResult:
             "uv sync --extra asr",
         )
     detail = "已安装"
+    cuda_devices = 0
+    cuda_runtime_missing = False
     try:
         from .asr import add_cuda_dll_dirs
 
-        add_cuda_dll_dirs()  # Windows：注册 pip 安装的 CUDA DLL
+        add_cuda_dll_dirs()  # Windows：注册 pip 安装（或便携包内置）的 CUDA DLL
         import ctranslate2  # type: ignore[import-not-found]
 
         cuda_devices = int(ctranslate2.get_cuda_device_count())
         if cuda_devices > 0:
             detail += f"，CUDA 设备 {cuda_devices}"
+            from .asr import cuda_dll_dirs
+
+            if not cuda_dll_dirs():
+                # 设备计数只查驱动；真正推理还需要 cuBLAS/cuDNN
+                cuda_runtime_missing = True
+                detail += "；未找到 CUDA 运行时 DLL（GPU 推理会失败）"
         else:
             detail += "，CUDA 不可用（将回退 CPU，速度较慢）"
     except Exception as exc:  # noqa: BLE001 - 不同版本 API 不稳定
@@ -147,6 +154,14 @@ def _check_asr(settings: Settings) -> CheckResult:
             detail += f"；模型 {model} 已缓存"
         else:
             detail += f"；模型 {model} 未下载（首次运行自动下载）"
+
+    if cuda_devices <= 0 or cuda_runtime_missing:
+        return CheckResult(
+            "faster-whisper",
+            STATUS_WARN,
+            detail,
+            "N 卡加速：运行 vidar gpu install 一键安装 GPU 运行时（从 PyPI 镜像下载）",
+        )
     return CheckResult("faster-whisper", STATUS_OK, detail)
 
 

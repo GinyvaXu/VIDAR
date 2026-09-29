@@ -32,7 +32,6 @@ dependencies = [
 [project.optional-dependencies]
 asr = [
     "faster-whisper>=1.2.0",
-    "imageio-ffmpeg>=0.5.1",  # 自带静态 ffmpeg，免手动安装
     # Windows + NVIDIA 显卡：CUDA 12 运行时（CTranslate2 依赖，避免 cublas64_12.dll 缺失）
     "nvidia-cublas-cu12>=12.4; sys_platform == 'win32'",
     "nvidia-cudnn-cu12>=9.1; sys_platform == 'win32'",

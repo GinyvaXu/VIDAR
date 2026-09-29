@@ -23,7 +23,7 @@ from ..refine import refine_asr_result
 from ..render import render_asr_transcript, render_refined_transcript
 from ..source import extract_page, normalize_source
 from ..summarize import summarize
-from ..utils.ffmpeg import extract_audio, find_ffmpeg
+from ..utils.audio import decode_to_wav
 from ..utils.text import format_clock, parse_bvid
 from .context import RunContext
 
@@ -139,32 +139,21 @@ class DownloadStep:
 
 
 class AudioStep:
-    """转码为 16kHz 单声道 WAV（ASR 标准输入）。"""
+    """解码为 16kHz 单声道 WAV（ASR 标准输入；基于 PyAV，无需外部 ffmpeg）。"""
 
     name = "audio"
-    title = "音频转码（16kHz 单声道 WAV）"
+    title = "音频解码（16kHz 单声道 WAV）"
     milestone: str | None = None
 
     def run(self, ctx: RunContext) -> dict[str, str]:
-        ffmpeg = find_ffmpeg(ctx.settings.paths)
-        if not ffmpeg:
-            raise DependencyError(
-                "未找到 ffmpeg",
-                hint="uv sync --extra asr 会附带静态 ffmpeg；也可在 config.toml 配置 paths.ffmpeg",
-            )
         source_name = ctx.state.record("download").artifacts.get("audio")
         if not source_name or not (ctx.work_dir / source_name).exists():
             raise VidarError("未找到下载的音频文件", hint="请先运行 download 步骤")
 
         wav = ctx.artifact("audio.wav")
-        ctx.emit("progress", step="audio", done=0, total=1, message="转码中…")
-        extract_audio(
-            ffmpeg,
-            ctx.work_dir / source_name,
-            wav,
-            should_cancel=ctx.cancel_event.is_set,
-        )
-        ctx.emit("progress", step="audio", done=1, total=1, message="转码完成")
+        ctx.emit("progress", step="audio", done=0, total=1, message="解码音频中…")
+        decode_to_wav(ctx.work_dir / source_name, wav, should_cancel=ctx.cancel_event.is_set)
+        ctx.emit("progress", step="audio", done=1, total=1, message="解码完成")
         return {"wav": "audio.wav"}
 
 

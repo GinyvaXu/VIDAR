@@ -26,6 +26,7 @@ from .config import (
     Settings,
     default_config_path,
     dump_settings,
+    exe_dir,
     load_settings,
     write_default_config,
 )
@@ -44,6 +45,8 @@ config_app = typer.Typer(help="配置管理", no_args_is_help=True)
 app.add_typer(config_app, name="config")
 model_app = typer.Typer(help="ASR 模型辅助下载与校验", no_args_is_help=True)
 app.add_typer(model_app, name="model")
+gpu_app = typer.Typer(help="GPU（CUDA）运行时辅助安装", no_args_is_help=True)
+app.add_typer(gpu_app, name="gpu")
 
 console = Console()
 
@@ -310,6 +313,53 @@ def model_check(
     console.print(f"[red]✗ {ok_count}/{len(results)} 个文件通过[/red]")
     console.print("[dim]修复：vidar model download（自动重下缺失/损坏文件，支持断点续传）[/dim]")
     raise typer.Exit(1)
+
+
+# --------------------------------------------------------------------------- #
+# gpu（CUDA 运行时辅助安装）
+# --------------------------------------------------------------------------- #
+@gpu_app.command("install")
+def gpu_install(
+    target: Path | None = typer.Option(
+        None, "--target", help="安装目录（默认：程序目录 / 当前目录）"
+    ),
+    mirror: str = typer.Option("tuna", "--mirror", help="下载源：tuna | aliyun | pypi"),
+    full: bool = typer.Option(False, "--full", help="安装全部 DLL（默认最小可用集，已实测）"),
+) -> None:
+    """从 PyPI 镜像下载 cuBLAS/cuDNN 并安装到程序目录（N 卡加速，约 1.2GB）。"""
+    from .gpu_pack import MIRRORS, install_gpu_runtime
+
+    if mirror not in MIRRORS:
+        _fail(VidarError(f"未知下载源：{mirror}", hint="可选：tuna / aliyun / pypi"))
+    base_dir = target or exe_dir() or Path.cwd()
+    console.print(f"安装目录：{Path(base_dir) / 'nvidia'}")
+    console.print(f"下载源　：{MIRRORS[mirror]}")
+
+    progress_bar = Progress(
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        DownloadColumn(),
+        TransferSpeedColumn(),
+        TimeRemainingColumn(),
+        console=console,
+    )
+    with progress_bar:
+        task_id = progress_bar.add_task("获取元数据…", total=None)
+
+        def on_progress(name: str, done: int, total: int) -> None:
+            progress_bar.update(task_id, description=name, total=total, completed=done)
+
+        try:
+            installed = install_gpu_runtime(
+                Path(base_dir), mirror=mirror, full=full, on_progress=on_progress
+            )
+        except VidarError as exc:
+            _fail(exc)
+        except KeyboardInterrupt:
+            _fail(VidarError("已取消（已安装部分保留，重跑可继续）"), code=130)
+
+    console.print(f"[green]✓ 已安装 {len(installed)} 个 DLL[/green]")
+    console.print("[dim]验证：vidar doctor（faster-whisper 行应显示 CUDA 设备 1）[/dim]")
 
 
 # --------------------------------------------------------------------------- #

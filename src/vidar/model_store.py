@@ -1,24 +1,20 @@
 """ASR 模型辅助下载与校验（hf-mirror / HuggingFace 官方源）。
 
-特性：
-- 大文件（model.bin）分片并行下载，小文件直连
+- 大文件（model.bin）分片并行下载，小文件直连（复用 utils.download）
 - 断点续传：分片文件保留，重跑跳过已完成分片
 - 大小校验：在线取 HF API 元数据，离线用内置表兜底
 """
 
 from __future__ import annotations
 
-import shutil
-import threading
-from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import suppress
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 import httpx
 
 from .errors import VidarError
+from .utils.download import CancelCheck, Progress, ProgressCallback, download_file
 
 ENDPOINTS: dict[str, str] = {
     "hf-mirror": "https://hf-mirror.com",
@@ -54,8 +50,6 @@ KNOWN_SIZES: dict[str, dict[str, int]] = {
     },
 }
 
-CHUNK_THRESHOLD = 200 * 1024 * 1024  # 超过 200MB 启用分片
-CHUNK_SIZE = 32 * 1024 * 1024  # 每片 32MB
 BIG_FILE_MIN_BYTES = 100 * 1024 * 1024  # 未知模型时 model.bin 的合理下限
 
 
@@ -123,135 +117,6 @@ def check_model(model: str, model_dir: Path, *, endpoint: str | None = None) -> 
     return results
 
 
-@dataclass
-class _Progress:
-    """线程安全的聚合进度。"""
-
-    total: int = 0
-    done: int = 0
-    lock: threading.Lock = field(default_factory=threading.Lock)
-
-    def reset(self) -> None:
-        with self.lock:
-            self.total = 0
-            self.done = 0
-
-    def add_total(self, amount: int) -> None:
-        with self.lock:
-            self.total += amount
-
-    def add_done(self, amount: int) -> None:
-        with self.lock:
-            self.done += amount
-
-    def snapshot(self) -> tuple[int, int]:
-        with self.lock:
-            return self.done, self.total
-
-
-ProgressCallback = Callable[[str, int, int], None]
-CancelCheck = Callable[[], bool]
-
-
-def _plan_parts(size: int) -> list[tuple[int, int]]:
-    parts: list[tuple[int, int]] = []
-    start = 0
-    while start < size:
-        end = min(start + CHUNK_SIZE - 1, size - 1)
-        parts.append((start, end))
-        start = end + 1
-    return parts
-
-
-def _abort_if_cancelled(should_cancel: CancelCheck | None) -> None:
-    if should_cancel is not None and should_cancel():
-        raise VidarError("下载已取消（分片已保留，重跑可续传）")
-
-
-def _download_file_simple(
-    url: str,
-    target: Path,
-    size: int,
-    description: str,
-    progress: _Progress,
-    on_progress: ProgressCallback | None,
-    should_cancel: CancelCheck | None,
-) -> None:
-    temp = target.with_suffix(target.suffix + ".tmp")
-    temp.unlink(missing_ok=True)
-    progress.add_total(size)
-    with (
-        httpx.Client(timeout=httpx.Timeout(30.0, read=120.0), follow_redirects=True) as client,
-        client.stream("GET", url) as response,
-    ):
-        response.raise_for_status()
-        with temp.open("wb") as handle:
-            for chunk in response.iter_bytes(1024 * 1024):
-                _abort_if_cancelled(should_cancel)
-                handle.write(chunk)
-                progress.add_done(len(chunk))
-                if on_progress:
-                    done, total = progress.snapshot()
-                    on_progress(description, done, total)
-    temp.replace(target)
-
-
-def _download_file_parallel(
-    url: str,
-    target: Path,
-    size: int,
-    description: str,
-    connections: int,
-    progress: _Progress,
-    on_progress: ProgressCallback | None,
-    should_cancel: CancelCheck | None,
-) -> None:
-    parts = [
-        (target.with_suffix(target.suffix + f".part{index:03d}"), start, end)
-        for index, (start, end) in enumerate(_plan_parts(size))
-    ]
-    remaining: list[tuple[Path, int, int]] = []
-    finished_bytes = 0
-    for part, start, end in parts:
-        span = end - start + 1
-        if part.exists() and part.stat().st_size == span:
-            finished_bytes += span
-        else:
-            part.unlink(missing_ok=True)  # 残片重下（单片 ≤32MB，成本可控）
-            remaining.append((part, start, end))
-    progress.add_total(size - finished_bytes)
-    progress.add_done(0)
-
-    def worker(item: tuple[Path, int, int]) -> None:
-        part, start, end = item
-        headers = {"Range": f"bytes={start}-{end}"}
-        with (
-            httpx.Client(timeout=httpx.Timeout(30.0, read=120.0), follow_redirects=True) as client,
-            client.stream("GET", url, headers=headers) as response,
-        ):
-            response.raise_for_status()
-            with part.open("wb") as handle:
-                for chunk in response.iter_bytes(1024 * 1024):
-                    _abort_if_cancelled(should_cancel)
-                    handle.write(chunk)
-                    progress.add_done(len(chunk))
-                    if on_progress:
-                        done, total = progress.snapshot()
-                        on_progress(description, done, total)
-
-    if remaining:
-        with ThreadPoolExecutor(max_workers=max(1, connections)) as pool:
-            futures = [pool.submit(worker, item) for item in remaining]
-            for future in as_completed(futures):
-                future.result()
-
-    with target.open("wb") as out:
-        for part, _start, _end in parts:
-            with part.open("rb") as source:
-                shutil.copyfileobj(source, out, length=4 * 1024 * 1024)
-            part.unlink(missing_ok=True)
-
-
 def download_model(
     model: str,
     model_dir: Path,
@@ -276,8 +141,7 @@ def download_model(
     if missing:
         raise VidarError(f"仓库 {repo} 缺少必需文件：{', '.join(missing)}")
 
-    progress = _Progress()
-    progress.reset()
+    progress = Progress()
     downloaded: list[str] = []
     skipped: list[str] = []
 
@@ -287,13 +151,16 @@ def download_model(
         if target.exists() and target.stat().st_size == size:
             skipped.append(name)
             continue
-        url = f"{endpoint}/{repo}/resolve/main/{name}"
-        if size >= CHUNK_THRESHOLD:
-            _download_file_parallel(
-                url, target, size, name, connections, progress, on_progress, should_cancel
-            )
-        else:
-            _download_file_simple(url, target, size, name, progress, on_progress, should_cancel)
+        download_file(
+            f"{endpoint}/{repo}/resolve/main/{name}",
+            target,
+            size,
+            description=name,
+            connections=connections,
+            progress=progress,
+            on_progress=on_progress,
+            should_cancel=should_cancel,
+        )
         if target.stat().st_size != size:
             raise VidarError(f"{name} 下载后大小不符（期望 {size}，实际 {target.stat().st_size}）")
         downloaded.append(name)
