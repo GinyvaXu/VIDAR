@@ -1,4 +1,8 @@
-"""OpenAI 兼容 LLM 客户端：重试、JSON 解析、token 记账。"""
+"""OpenAI 兼容 LLM 客户端：重试、JSON 解析、token 记账。
+
+兼容 OpenCode Go/Zen：自动附加 `User-Agent: vidar/<version>` 与稳定会话头
+`x-opencode-session`（按其接入规范，便于路由与提示词缓存）。
+"""
 
 from __future__ import annotations
 
@@ -6,7 +10,9 @@ import json
 import re
 import time
 from dataclasses import dataclass
+from uuid import uuid4
 
+from .. import __version__
 from ..config import LlmSettings
 from ..errors import DependencyError, LlmError
 from ..logging_setup import get_logger
@@ -61,7 +67,7 @@ class LlmClient:
         if not settings.configured:
             raise LlmError(
                 "LLM 未配置：缺少 api_base 或 api_key",
-                hint="设置环境变量 BILIKING_LLM_API_KEY / BILIKING_LLM_API_BASE，"
+                hint="设置环境变量 VIDAR_LLM_API_KEY / VIDAR_LLM_API_BASE，"
                 "或参考 config.example.toml 配置 [llm]",
             )
         try:
@@ -71,11 +77,16 @@ class LlmClient:
 
         self.settings = settings
         self.usage = Usage()
+        headers = {"User-Agent": f"vidar/{__version__}"}
+        if "opencode.ai" in settings.api_base:
+            # OpenCode Go/Zen 接入规范：稳定会话 ID，利于路由与提示词缓存
+            headers["x-opencode-session"] = uuid4().hex
         self._client = OpenAI(
             api_key=settings.api_key,
             base_url=settings.api_base,
             timeout=settings.timeout_sec,
             max_retries=0,  # 由本类统一控制重试
+            default_headers=headers,
         )
 
     # ------------------------------------------------------------------ #

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from biliking.models import AsrSegment
-from biliking.utils.text import (
+from vidar.models import AsrSegment
+from vidar.utils.text import (
     chunk_by_chars,
     estimate_tokens,
     format_clock,

@@ -15,7 +15,7 @@ from typing import Protocol
 from rich.console import Console
 from rich.table import Table
 
-from ..errors import BilikingError, MilestoneError
+from ..errors import CancelledError, MilestoneError, VidarError
 from ..models import StepStatus
 from .context import RunContext
 
@@ -41,13 +41,13 @@ class PipelineRunner:
     # ------------------------------------------------------------------ #
     def select(self, from_step: str | None = None, to_step: str | None = None) -> list[Step]:
         if from_step and from_step not in self.order:
-            raise BilikingError(f"未知步骤：{from_step}", hint=f"可选：{', '.join(self.order)}")
+            raise VidarError(f"未知步骤：{from_step}", hint=f"可选：{', '.join(self.order)}")
         if to_step and to_step not in self.order:
-            raise BilikingError(f"未知步骤：{to_step}", hint=f"可选：{', '.join(self.order)}")
+            raise VidarError(f"未知步骤：{to_step}", hint=f"可选：{', '.join(self.order)}")
         start = self.order.index(from_step) if from_step else 0
         end = self.order.index(to_step) if to_step else len(self.steps) - 1
         if start > end:
-            raise BilikingError(f"--from {from_step} 在 --to {to_step} 之后，无法执行")
+            raise VidarError(f"--from {from_step} 在 --to {to_step} 之后，无法执行")
         return self.steps[start : end + 1]
 
     def render_plan(self, selected: list[Step]) -> None:
@@ -85,30 +85,42 @@ class PipelineRunner:
             return
 
         for step in selected:
+            self.ctx.raise_if_cancelled()
             if self.ctx.state.is_done(step.name):
                 self.ctx.log.info("跳过 %s（已完成）", step.name)
+                self.ctx.emit("step_skipped", step=step.name, title=step.title)
                 continue
             self._run_step(step)
+        self.ctx.emit("run_finished")
 
     def _run_step(self, step: Step) -> None:
         self.ctx.state.mark_running(step.name)
+        self.ctx.emit("step_started", step=step.name, title=step.title)
         started = time.perf_counter()
         self.ctx.log.info("开始 %s（%s）", step.name, step.title)
         try:
             artifacts = step.run(self.ctx)
+        except CancelledError as exc:
+            self.ctx.state.mark_pending(step.name, "已取消")
+            self.ctx.emit("step_cancelled", step=step.name, title=step.title)
+            raise exc
         except MilestoneError as exc:
             self.ctx.state.mark_failed(step.name, str(exc))
+            self.ctx.emit("step_failed", step=step.name, title=step.title, error=str(exc))
             console.print(f"[yellow]⏭ {exc}[/yellow]")
             raise
-        except BilikingError as exc:
+        except VidarError as exc:
             self.ctx.state.mark_failed(step.name, exc.message)
+            self.ctx.emit("step_failed", step=step.name, title=step.title, error=exc.message)
             raise
         except Exception as exc:  # noqa: BLE001 - 兜底，防止状态悬挂
             self.ctx.state.mark_failed(step.name, f"{type(exc).__name__}: {exc}")
-            raise BilikingError(f"步骤「{step.title}」发生未预期错误：{exc}") from exc
+            self.ctx.emit("step_failed", step=step.name, title=step.title, error=str(exc))
+            raise VidarError(f"步骤「{step.title}」发生未预期错误：{exc}") from exc
 
         elapsed = time.perf_counter() - started
         self.ctx.state.mark_done(step.name, artifacts)
+        self.ctx.emit("step_done", step=step.name, title=step.title, elapsed=elapsed)
         self.ctx.log.info("完成 %s，用时 %.1fs", step.name, elapsed)
 
     # ------------------------------------------------------------------ #

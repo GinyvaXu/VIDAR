@@ -1,4 +1,4 @@
-"""BiliVideoKing CLI 入口。"""
+"""VIDAR CLI 入口。"""
 
 from __future__ import annotations
 
@@ -11,6 +11,14 @@ from typing import Any
 import typer
 from rich.console import Console
 from rich.panel import Panel
+from rich.progress import (
+    BarColumn,
+    DownloadColumn,
+    Progress,
+    TextColumn,
+    TimeRemainingColumn,
+    TransferSpeedColumn,
+)
 from rich.table import Table
 
 from . import __version__
@@ -22,18 +30,20 @@ from .config import (
     write_default_config,
 )
 from .doctor import STATUS_FAIL, STATUS_OK, STATUS_WARN, run_checks
-from .errors import BilikingError
+from .errors import CancelledError, VidarError
 from .logging_setup import setup_logging
 from .pipeline import PipelineRunner, RunContext, default_steps, resolve_path
 
 app = typer.Typer(
-    help="BiliVideoKing：把 B 站视频变成可读、可检索、可追溯的 Markdown 知识文档。",
+    help="VIDAR：把 B 站视频变成可读、可检索、可追溯的 Markdown 知识文档。",
     no_args_is_help=True,
     add_completion=False,
     pretty_exceptions_enable=False,
 )
 config_app = typer.Typer(help="配置管理", no_args_is_help=True)
 app.add_typer(config_app, name="config")
+model_app = typer.Typer(help="ASR 模型辅助下载与校验", no_args_is_help=True)
+app.add_typer(model_app, name="model")
 
 console = Console()
 
@@ -47,7 +57,7 @@ def _setup_logs(settings: Settings, *, verbose: bool = False, quiet: bool = Fals
     setup_logging(logs_dir, verbose=verbose, quiet=quiet)
 
 
-def _fail(exc: BilikingError, code: int = 1) -> None:
+def _fail(exc: VidarError, code: int = 1) -> None:
     console.print(f"[bold red]✗ {exc.message}[/bold red]")
     if exc.hint:
         console.print(f"[dim]{exc.hint}[/dim]")
@@ -91,7 +101,7 @@ def run(
         settings = _load(config, overrides)
         _setup_logs(settings, verbose=verbose)
         ctx = RunContext(settings, source)
-    except BilikingError as exc:
+    except VidarError as exc:
         _fail(exc, code=2)
 
     llm_text = (
@@ -108,7 +118,7 @@ def run(
             f"[bold]ASR[/bold]　　 {settings.asr.engine} / "
             f"{settings.asr.model} / {settings.asr.device}\n"
             f"[bold]LLM[/bold]　　 {llm_text}",
-            title="BiliVideoKing",
+            title="VIDAR",
             border_style="cyan",
         )
     )
@@ -116,7 +126,9 @@ def run(
     runner = PipelineRunner(ctx, default_steps())  # type: ignore[arg-type]
     try:
         runner.run(from_step=from_step, to_step=to_step, dry_run=dry_run)
-    except BilikingError as exc:
+    except CancelledError as exc:
+        _fail(exc, code=130)
+    except VidarError as exc:
         _fail(exc)
 
     if not dry_run:
@@ -141,7 +153,7 @@ def doctor(
     try:
         settings = _load(config)
         _setup_logs(settings, quiet=True)
-    except BilikingError as exc:
+    except VidarError as exc:
         _fail(exc, code=2)
 
     results = run_checks(settings, net=net)
@@ -184,10 +196,10 @@ def config_init(
     target = path or default_config_path()
     try:
         written = write_default_config(target, force=force)
-    except BilikingError as exc:
+    except VidarError as exc:
         _fail(exc)
     console.print(f"[green]✓ 已写入配置：{written}[/green]")
-    console.print("[dim]编辑后可用 biliking config show 查看生效配置[/dim]")
+    console.print("[dim]编辑后可用 vidar config show 查看生效配置[/dim]")
 
 
 @config_app.command("show")
@@ -198,7 +210,7 @@ def config_show(
     """展示生效配置（密钥掩码）。"""
     try:
         settings = _load(config)
-    except BilikingError as exc:
+    except VidarError as exc:
         _fail(exc, code=2)
     data = dump_settings(settings)
     console.print(f"[dim]配置文件：{settings.config_path or '（全部默认值）'}[/dim]")
@@ -210,10 +222,125 @@ def config_show(
         console.print(tomli_w.dumps(data))
 
 
+# --------------------------------------------------------------------------- #
+# model（ASR 模型辅助下载与校验）
+# --------------------------------------------------------------------------- #
+@model_app.command("download")
+def model_download(
+    model: str = typer.Argument("large-v3", help="模型名：large-v3 / medium / small / Systran/xxx"),
+    dir: Path | None = typer.Option(None, "--dir", help="目标目录（默认 models/<模型名>）"),
+    source: str = typer.Option("hf-mirror", "--source", help="下载源：hf-mirror | huggingface"),
+    connections: int = typer.Option(6, "--connections", help="分片并发数"),
+) -> None:
+    """分片并行下载 ASR 模型（断点续传 + 大小校验）。"""
+    from .model_store import ENDPOINTS, default_model_dir, download_model, resolve_repo
+
+    if source not in ENDPOINTS:
+        _fail(VidarError(f"未知下载源：{source}", hint="可选：hf-mirror / huggingface"))
+    target = dir or default_model_dir(model)
+    console.print(f"模型：{resolve_repo(model)}")
+    console.print(f"目录：{target}")
+    console.print(f"源　：{ENDPOINTS[source]}")
+
+    progress_bar = Progress(
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        DownloadColumn(),
+        TransferSpeedColumn(),
+        TimeRemainingColumn(),
+        console=console,
+    )
+    with progress_bar:
+        task_id = progress_bar.add_task("获取元数据…", total=None)
+
+        def on_progress(name: str, done: int, total: int) -> None:
+            progress_bar.update(task_id, description=f"下载 {name}", total=total, completed=done)
+
+        try:
+            downloaded, skipped = download_model(
+                model, target, source=source, connections=connections, on_progress=on_progress
+            )
+        except VidarError as exc:
+            _fail(exc)
+        except KeyboardInterrupt:
+            _fail(VidarError("已取消（分片已保留，重跑可续传）"), code=130)
+
+    if skipped:
+        console.print(f"[dim]跳过已存在文件：{', '.join(skipped)}[/dim]")
+    console.print(f"[green]✓ 下载完成：{len(downloaded)} 个文件[/green]")
+    console.print(f"[dim]模型目录：{target}（config.toml 中把 asr.model 指到该目录即可）[/dim]")
+
+
+@model_app.command("check")
+def model_check(
+    model: str = typer.Argument("large-v3", help="模型名：large-v3 / medium / small / Systran/xxx"),
+    dir: Path | None = typer.Option(None, "--dir", help="模型目录（默认 models/<模型名>）"),
+    source: str = typer.Option("hf-mirror", "--source", help="元数据源：hf-mirror | huggingface"),
+) -> None:
+    """校验模型文件完整性（大小比对，缺失/损坏一目了然）。"""
+    from .model_store import ENDPOINTS, check_model, default_model_dir, resolve_repo
+
+    target = dir or default_model_dir(model)
+    results = check_model(model, target, endpoint=ENDPOINTS.get(source, source))
+
+    def human(num: int | None) -> str:
+        if num is None:
+            return "—"
+        if num >= 1024**3:
+            return f"{num / 1024**3:.2f} GB"
+        if num >= 1024**2:
+            return f"{num / 1024**2:.1f} MB"
+        return f"{num} B"
+
+    table = Table(title=f"模型校验 · {resolve_repo(model)}")
+    table.add_column("文件", style="cyan", no_wrap=True)
+    table.add_column("期望大小", justify="right")
+    table.add_column("实际大小", justify="right")
+    table.add_column("结果", no_wrap=True)
+    ok_count = 0
+    for item in results:
+        ok_count += int(item.ok)
+        icon = "[green]✓[/green]" if item.ok else "[red]✗[/red]"
+        table.add_row(item.name, human(item.expected), human(item.actual), icon)
+    console.print(table)
+    console.print(f"[dim]目录：{target}[/dim]")
+    if ok_count == len(results):
+        console.print(f"[green]✓ {ok_count}/{len(results)} 个文件校验通过[/green]")
+        return
+    console.print(f"[red]✗ {ok_count}/{len(results)} 个文件通过[/red]")
+    console.print("[dim]修复：vidar model download（自动重下缺失/损坏文件，支持断点续传）[/dim]")
+    raise typer.Exit(1)
+
+
+# --------------------------------------------------------------------------- #
+# version / gui
+# --------------------------------------------------------------------------- #
 @app.command()
 def version() -> None:
     """显示版本号。"""
-    console.print(f"BiliVideoKing v{__version__}")
+    console.print(f"VIDAR v{__version__}")
+
+
+@app.command()
+def gui(
+    config: Path | None = typer.Option(None, "--config", help="指定配置文件路径"),
+) -> None:
+    """启动图形界面（需要 uv sync --extra gui）。"""
+    try:
+        settings = _load(config)
+    except VidarError as exc:
+        _fail(exc, code=2)
+    try:
+        from .gui.app import run_gui
+    except ImportError:
+        _fail(
+            VidarError(
+                "未安装 GUI 依赖 PySide6",
+                hint="执行 uv sync --extra gui 安装后重试",
+            ),
+            code=2,
+        )
+    run_gui(settings)
 
 
 def main() -> None:

@@ -1,6 +1,6 @@
-# BiliVideoKing 配置示例
+# VIDAR 配置示例
 # 复制到以下任一位置生效：
-#   1) %APPDATA%\biliking\config.toml   （推荐，biliking config init 会写入）
+#   1) %APPDATA%\vidar\config.toml   （推荐，vidar config init 会写入）
 #   2) 当前目录 config.toml
 #   3) 用 --config <路径> 显式指定
 #
@@ -23,11 +23,12 @@ language = "zh"
 vad = true
 beam_size = 5
 filter_hallucinations = true
+hf_endpoint = "https://hf-mirror.com"   # 模型下载镜像；置空则用 HuggingFace 官方源
 
 [llm]
 # 任何 OpenAI 兼容服务均可：DeepSeek / OpenCode Zen / SiliconFlow / Ollama ...
 api_base = "https://api.deepseek.com/v1"
-api_key = ""                # 留空则读取环境变量 BILIKING_LLM_API_KEY 或 OPENAI_API_KEY
+api_key = ""                # 留空则读取环境变量 VIDAR_LLM_API_KEY 或 OPENAI_API_KEY
 model = "deepseek-chat"
 # refine_model = ""         # 可选：精修单独指定模型（默认用 model）
 # summary_model = ""        # 可选：总结单独指定模型（默认用 model）

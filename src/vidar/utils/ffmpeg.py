@@ -6,10 +6,11 @@ import json
 import os
 import shutil
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 
 from ..config import PathsSettings
-from ..errors import BilikingError
+from ..errors import CancelledError, VidarError
 
 _CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 
@@ -90,21 +91,43 @@ def probe_duration(ffprobe: str, media: Path) -> float | None:
         return None
 
 
-def extract_audio(ffmpeg: str, src: Path, dst: Path) -> None:
-    """抽取 16kHz 单声道 PCM WAV（faster-whisper 的标准输入）。"""
+def extract_audio(
+    ffmpeg: str,
+    src: Path,
+    dst: Path,
+    *,
+    should_cancel: Callable[[], bool] | None = None,
+) -> None:
+    """抽取 16kHz 单声道 PCM WAV（faster-whisper 的标准输入），支持中途取消。"""
     dst.parent.mkdir(parents=True, exist_ok=True)
-    result = _run(
-        [
-            ffmpeg, "-y",
-            "-i", str(src),
-            "-vn",
-            "-ac", "1",
-            "-ar", "16000",
-            "-c:a", "pcm_s16le",
-            str(dst),
-        ],
-        timeout=3600,
+    cmd = [
+        ffmpeg, "-y",
+        "-i", str(src),
+        "-vn",
+        "-ac", "1",
+        "-ar", "16000",
+        "-c:a", "pcm_s16le",
+        str(dst),
+    ]
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        creationflags=_CREATE_NO_WINDOW,
     )
-    if result.returncode != 0:
-        tail = "\n".join((result.stderr or "").splitlines()[-8:])
-        raise BilikingError(f"ffmpeg 抽取音频失败：{dst.name}", hint=tail)
+    stderr = ""
+    while True:
+        try:
+            _, stderr = proc.communicate(timeout=1.0)
+            break
+        except subprocess.TimeoutExpired:
+            if should_cancel is not None and should_cancel():
+                proc.kill()
+                proc.communicate()
+                raise CancelledError("音频转码已取消") from None
+    if proc.returncode != 0:
+        tail = "\n".join((stderr or "").splitlines()[-8:])
+        raise VidarError(f"ffmpeg 抽取音频失败：{dst.name}", hint=tail)

@@ -1,4 +1,4 @@
-"""日志：终端 Rich 输出 + 文件落盘（logs/biliking.log）。"""
+"""日志：终端 Rich 输出 + 文件落盘（logs/vidar.log）。"""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from pathlib import Path
 
 from rich.logging import RichHandler
 
-_LOGGER_NAME = "biliking"
+_LOGGER_NAME = "vidar"
 
 
 def get_logger(name: str = "") -> logging.Logger:
@@ -21,7 +21,7 @@ def setup_logging(logs_dir: Path, *, verbose: bool = False, quiet: bool = False)
     logger.handlers.clear()
     logger.propagate = False
 
-    file_handler = logging.FileHandler(logs_dir / "biliking.log", encoding="utf-8")
+    file_handler = logging.FileHandler(logs_dir / "vidar.log", encoding="utf-8")
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(
         logging.Formatter("%(asctime)s %(levelname)-7s %(name)s: %(message)s")

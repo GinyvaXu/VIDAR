@@ -104,6 +104,14 @@ class StateStore:
         record.error = error
         self.save()
 
+    def mark_pending(self, step: str, note: str = "") -> None:
+        """回退为待执行（用户取消 / 需要重跑）。"""
+        record = self.record(step)
+        record.status = StepStatus.PENDING
+        record.finished_at = _now()
+        record.error = note or None
+        self.save()
+
     def reset_from(self, step: str, ordered_steps: list[str]) -> list[str]:
         """把 step 及其后续步骤全部重置为 pending，返回被重置的步骤名。"""
         if step not in ordered_steps:

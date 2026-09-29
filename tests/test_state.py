@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from biliking.models import StepStatus
-from biliking.pipeline.state import StateStore
+from vidar.models import StepStatus
+from vidar.pipeline.state import StateStore
 
 ORDER = ["a", "b", "c"]
 

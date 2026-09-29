@@ -6,17 +6,20 @@ from pathlib import Path
 
 import pytest
 
-from biliking.config import dump_settings, load_settings, mask_secret
-from biliking.errors import ConfigError
+from vidar.config import dump_settings, load_settings, mask_secret
+from vidar.errors import ConfigError
 
 _ENV_KEYS = [
-    "BILIKING_LLM_API_KEY",
-    "BILIKING_LLM_API_BASE",
-    "BILIKING_LLM_MODEL",
-    "BILIKING_ASR__MODEL",
-    "BILIKING_ASR_MODEL",
+    "VIDAR_LLM_API_KEY",
+    "VIDAR_LLM_API_BASE",
+    "VIDAR_LLM_MODEL",
+    "VIDAR_ASR__MODEL",
+    "VIDAR_ASR_MODEL",
     "OPENAI_API_KEY",
     "OPENAI_BASE_URL",
+    "OPENCODE_GO_API_KEY",
+    "OPENCODE_GO_API_BASE",
+    "OPENCODE_API_KEY",
 ]
 
 
@@ -38,8 +41,8 @@ def test_toml_loading(tmp_path: Path) -> None:
 def test_env_overrides_toml(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     cfg = tmp_path / "config.toml"
     cfg.write_text('[asr]\nmodel = "medium"\n', encoding="utf-8")
-    monkeypatch.setenv("BILIKING_ASR__MODEL", "small")
-    monkeypatch.setenv("BILIKING_LLM_API_KEY", "sk-env")
+    monkeypatch.setenv("VIDAR_ASR__MODEL", "small")
+    monkeypatch.setenv("VIDAR_LLM_API_KEY", "sk-env")
     settings = load_settings(cfg)
     assert settings.asr.model == "small"
     assert settings.llm.api_key == "sk-env"
@@ -47,7 +50,7 @@ def test_env_overrides_toml(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
 
 def test_cli_overrides_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("BILIKING_ASR__MODEL", "small")
+    monkeypatch.setenv("VIDAR_ASR__MODEL", "small")
     settings = load_settings(None, {"asr": {"model": "large-v3"}})
     assert settings.asr.model == "large-v3"
 
@@ -60,6 +63,15 @@ def test_openai_compatible_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     assert settings.llm.api_key == "sk-openai"
     assert settings.llm.api_base == "https://example.com/v1"
     assert settings.llm.configured is True
+
+
+def test_opencode_go_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OPENCODE_GO_API_KEY", "sk-opencode")
+    monkeypatch.setenv("OPENCODE_GO_API_BASE", "https://opencode.ai/zen/go/v1")
+    settings = load_settings(None)
+    assert settings.llm.api_key == "sk-opencode"
+    assert settings.llm.api_base == "https://opencode.ai/zen/go/v1"
 
 
 def test_cwd_config_is_discovered(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -1,11 +1,16 @@
-"""RunContext：一次运行的全部上下文（配置、路径、状态、元信息）。"""
+"""RunContext：一次运行的全部上下文（配置、路径、状态、取消与事件）。"""
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
+import threading
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from ..config import Settings
+from ..errors import CancelledError
 from ..logging_setup import get_logger
 from ..models import VideoMeta
 from ..utils.text import parse_bvid
@@ -39,6 +44,25 @@ class RunContext:
 
         self.state = StateStore(self.work_dir / "state.json", self.key)
         self.meta: VideoMeta | None = self._load_meta()
+
+        # 取消与事件（GUI / CLI 进度展示用）
+        self.cancel_event = threading.Event()
+        self.on_event: Callable[[str, dict[str, Any]], None] | None = None
+
+    # ------------------------------------------------------------------ #
+    def emit(self, event: str, **data: Any) -> None:
+        """向订阅者广播事件；回调异常不影响主流程。"""
+        if self.on_event is not None:
+            with contextlib.suppress(Exception):  # 回调问题不应影响任务
+                self.on_event(event, data)
+
+    def cancel(self) -> None:
+        self.cancel_event.set()
+        self.emit("cancelled")
+
+    def raise_if_cancelled(self) -> None:
+        if self.cancel_event.is_set():
+            raise CancelledError()
 
     # ------------------------------------------------------------------ #
     def artifact(self, name: str) -> Path:

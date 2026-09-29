@@ -1,4 +1,4 @@
-"""环境自检（biliking doctor）：依赖 / 硬件 / 配置 / 目录 / 网络。"""
+"""环境自检（vidar doctor）：依赖 / 硬件 / 配置 / 目录 / 网络。"""
 
 from __future__ import annotations
 
@@ -111,6 +111,9 @@ def _check_asr(settings: Settings) -> CheckResult:
         )
     detail = "已安装"
     try:
+        from .asr import add_cuda_dll_dirs
+
+        add_cuda_dll_dirs()  # Windows：注册 pip 安装的 CUDA DLL
         import ctranslate2  # type: ignore[import-not-found]
 
         cuda_devices = int(ctranslate2.get_cuda_device_count())
@@ -123,7 +126,23 @@ def _check_asr(settings: Settings) -> CheckResult:
 
     cache_dir = _hf_cache_dir()
     model = settings.asr.model
-    if cache_dir is not None and cache_dir.exists():
+    model_path = Path(model)
+    if model_path.is_dir():
+        from .model_store import check_model
+
+        file_results = check_model(model_path.name, model_path)
+        ok_count = sum(1 for item in file_results if item.ok)
+        if ok_count == len(file_results):
+            detail += f"；本地模型 OK（{ok_count}/{len(file_results)} 个文件校验通过）"
+        else:
+            broken = [item.name for item in file_results if not item.ok]
+            return CheckResult(
+                "faster-whisper",
+                STATUS_FAIL,
+                f"本地模型不完整：缺/坏 {', '.join(broken)}",
+                "运行 vidar model download 修复（支持断点续传），或见 README「模型下载」",
+            )
+    elif cache_dir is not None and cache_dir.exists():
         if list(cache_dir.glob(f"models--*--faster-whisper-{model}*")):
             detail += f"；模型 {model} 已缓存"
         else:
@@ -138,7 +157,7 @@ def _check_llm(settings: Settings, *, net: bool) -> CheckResult:
             "LLM",
             STATUS_WARN,
             "未配置 api_base / api_key",
-            "设置 BILIKING_LLM_API_KEY 等环境变量，或参考 config.example.toml",
+            "设置 VIDAR_LLM_API_KEY 等环境变量，或参考 config.example.toml",
         )
     detail = f"{llm.model} @ {llm.api_base}"
     if not net:
@@ -171,7 +190,14 @@ def _check_bilibili() -> CheckResult:
     except ImportError:  # pragma: no cover
         return CheckResult("B站连通性", STATUS_WARN, "未安装 httpx，跳过")
     try:
-        with httpx.Client(timeout=10, follow_redirects=True) as client:
+        # 带浏览器 UA，否则 B 站会返回 412（防爬）
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+            )
+        }
+        with httpx.Client(timeout=10, follow_redirects=True, headers=headers) as client:
             response = client.get("https://www.bilibili.com")
     except Exception as exc:  # noqa: BLE001
         return CheckResult("B站连通性", STATUS_WARN, f"访问失败：{exc}", "检查网络/代理")
@@ -192,7 +218,7 @@ def _check_dirs(settings: Settings) -> CheckResult:
             path = Path.cwd() / path
         try:
             path.mkdir(parents=True, exist_ok=True)
-            probe = path / ".biliking_write_test"
+            probe = path / ".vidar_write_test"
             probe.write_text("ok", encoding="utf-8")
             probe.unlink()
         except OSError as exc:

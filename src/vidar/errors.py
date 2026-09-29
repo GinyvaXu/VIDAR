@@ -1,9 +1,9 @@
-"""BiliVideoKing 异常体系。"""
+"""VIDAR 异常体系。"""
 
 from __future__ import annotations
 
 
-class BilikingError(Exception):
+class VidarError(Exception):
     """所有业务异常的基类。"""
 
     def __init__(self, message: str, *, hint: str = "") -> None:
@@ -15,23 +15,23 @@ class BilikingError(Exception):
         return f"{self.message}（{self.hint}）" if self.hint else self.message
 
 
-class ConfigError(BilikingError):
+class ConfigError(VidarError):
     """配置文件格式错误、路径不可用等。"""
 
 
-class DependencyError(BilikingError):
+class DependencyError(VidarError):
     """外部依赖缺失：ffmpeg / yt-dlp / faster-whisper 等。"""
 
 
-class NetworkError(BilikingError):
+class NetworkError(VidarError):
     """下载或网络请求失败。"""
 
 
-class LlmError(BilikingError):
+class LlmError(VidarError):
     """LLM 调用失败（重试后仍失败、返回不可解析等）。"""
 
 
-class StepFailed(BilikingError):
+class StepFailed(VidarError):
     """流水线步骤执行失败。"""
 
     def __init__(self, step: str, message: str, *, hint: str = "") -> None:
@@ -39,7 +39,7 @@ class StepFailed(BilikingError):
         self.step = step
 
 
-class MilestoneError(BilikingError):
+class MilestoneError(VidarError):
     """功能尚未实现（属于后续里程碑）。"""
 
     def __init__(self, milestone: str, feature: str) -> None:
@@ -49,3 +49,10 @@ class MilestoneError(BilikingError):
         )
         self.milestone = milestone
         self.feature = feature
+
+
+class CancelledError(VidarError):
+    """用户主动取消任务（已完成步骤的产物保留，可重跑续传）。"""
+
+    def __init__(self, message: str = "任务已取消") -> None:
+        super().__init__(message, hint="已完成步骤不会丢失，重跑将从中断处继续")
