@@ -1,7 +1,7 @@
-# BiliVideoKing 架构设计 v0.1
+# VIDAR 架构设计 v0.1
 
 > 配套文档：`docs/requirements.md`（需求规格）。本文回答「怎么实现」。
-> 命名约定：CLI 与包名 `biliking`。
+> 命名约定：CLI 与包名 `vidar`。
 
 ---
 
@@ -33,25 +33,45 @@ CLI (Typer)
 ## 2. 代码结构（含里程碑归属）
 
 ```
-src/biliking/
-├── cli.py                  # Typer 命令：run / doctor / config / version        [M0]
-├── config.py               # pydantic-settings：默认值<TOML<环境变量<CLI         [M0]
-├── doctor.py               # 环境自检（ffmpeg/GPU/依赖/API/目录/磁盘）             [M0]
-├── errors.py               # 异常体系（ConfigError/DependencyError/MilestoneError…）[M0]
-├── logging_setup.py        # 终端 + 日志文件双通道                                [M0]
-├── models.py               # 全部 pydantic 数据模型                              [M0]
+src/vidar/
+├── cli.py                  # Typer 命令：run / doctor / config / gui / version        [M0]
+├── config.py               # 配置系统：默认值<TOML<环境变量<CLI                      [M0]
+├── doctor.py               # 环境自检（ffmpeg/GPU/依赖/API/目录/磁盘）                [M0]
+├── errors.py               # 异常体系（含 CancelledError / MilestoneError）          [M0]
+├── logging_setup.py        # 终端 + 日志文件双通道                                   [M0]
+├── models.py               # 全部 pydantic 数据模型                                  [M0]
+├── source.py               # BV/URL 归一化与分 P 解析                                [M1]
+├── downloader.py           # yt-dlp 仅音频下载 + 下载进度                            [M1]
+├── asr.py                  # faster-whisper：CUDA DLL/镜像准备、幻觉过滤、段落合并    [M1]
+├── render.py               # Markdown 渲染（逐字稿；notes/outline 属 M2）             [M1]
 ├── pipeline/
-│   ├── base.py             # Step 协议 + PipelineRunner + 执行计划                [M0]
-│   ├── context.py          # RunContext：路径、配置、状态、产物定位                [M0]
-│   ├── state.py            # state.json 状态机（断点续跑、崩溃恢复）               [M0]
-│   └── steps.py            # 8 个步骤实现                                        [M0 骨架 / M1+M2 实现]
+│   ├── base.py             # Step 协议 + 执行器（进度事件、取消、续跑）               [M0]
+│   ├── context.py          # RunContext：路径/状态/取消/事件                          [M0]
+│   ├── state.py            # state.json 状态机                                        [M0]
+│   └── steps.py            # 8 个步骤（M1 已实现前 4 个）                             [M1]
+├── gui/
+│   ├── app.py              # PySide6 主窗口 + 任务线程 + 日志流                       [GUI]
+│   └── settings_dialog.py  # 设置面板（写回 config.toml）                             [GUI]
 ├── llm/
-│   ├── client.py           # OpenAI 兼容客户端：重试/JSON 模式/token 记账          [M0]
-│   └── prompts.py          # 精修/章节/map/reduce 提示词模板                      [M0]
+│   ├── client.py           # OpenAI 兼容客户端：重试/JSON 模式/token 记账              [M0]
+│   └── prompts.py          # 精修/章节/map/reduce 提示词模板                          [M0]
 └── utils/
-    ├── ffmpeg.py           # ffmpeg/ffprobe 定位、探测、抽音频                    [M0]
-    └── text.py             # 时间格式化/断句/字数统计/slug 化                     [M0]
+    ├── ffmpeg.py           # ffmpeg 定位（系统/PATH/imageio-ffmpeg）、抽音频、取消     [M0]
+    └── text.py             # 时间格式化/断句/字数统计/slug 化                         [M0]
+
+packaging/                  # PyInstaller 打包（GUI + CLI 双 exe，onedir）
+├── vidar.spec           # 双入口共享运行时；收集 CUDA/ffmpeg/Qt/VAD 资源
+├── launch_gui.py / launch_cli.py
+└── portable/               # 便携包附加文件（config.toml / 使用说明.txt）
+
+scripts/build_portable.ps1  # 一键构建便携版（-Archive 归档到 versions/）
 ```
+
+## 版本管理（ProjectDock 契约）
+
+- 版本号唯一来源：根目录 `VERSION`（hatchling 动态版本 + 运行时读取）；源码中禁止手写第二份版本号
+- 变更同步更新 `CHANGELOG.md`；技术栈文档见 `TECHSTACK.md`
+- 构建产物归档：`versions/vX.Y.Z/dist/`（仅本地、只增不删、不覆盖旧产物）
 
 ---
 
@@ -71,7 +91,7 @@ src/biliking/
 │   └── run.log
 ├── output/<日期>_<BV>_<标题slug>/
 │   ├── notes.md / transcript.raw.md / transcript.refined.md / outline.md / meta.json
-└── logs/biliking.log
+└── logs/vidar.log
 ```
 
 `state.json` 步骤状态：`pending / running / done / failed`。加载时把遗留的 `running` 重置为 `pending`（视为崩溃）。
@@ -170,7 +190,7 @@ map/reduce 输出的锚点段号 → 本地查段落 start → 导出为 `[mm:ss
 | 依赖缺失（ffmpeg/yt-dlp/faster-whisper） | `DependencyError`，打印安装指引，退出码 2 |
 | 网络/LLM 失败 | 自动重试；仍失败则步骤标记 failed，退出码 1，可重跑续传 |
 | 步骤未实现（里程碑未到） | `MilestoneError`，明确提示所属里程碑 |
-| 日志 | 终端 Rich（正常信息 info / 详细 -v）+ 文件 `logs/biliking.log`（含每步耗时） |
+| 日志 | 终端 Rich（正常信息 info / 详细 -v）+ 文件 `logs/vidar.log`（含每步耗时） |
 
 ---
 
@@ -186,10 +206,11 @@ map/reduce 输出的锚点段号 → 本地查段落 start → 导出为 `[mm:ss
 
 | 阶段 | 内容 | 状态 |
 |------|------|------|
-| M0 | CLI/配置/doctor/状态机/文本工具/测试骨架 | ✅ 本次交付 |
-| M1 | resolve（yt-dlp）+ download + audio + asr + transcript.raw | 下一步 |
-| M2 | refine + chapters + summarize + export（端到端产出 notes.md） | |
-| M3 | 导出增强（SRT/token 统计）+ 清理策略打磨 + 文档完善 | |
+| M0 | CLI/配置/doctor/状态机/文本工具/测试骨架 | ✅ |
+| M1 | resolve + download + audio + asr + transcript.raw（含 CUDA DLL 自动配置） | ✅ |
+| GUI | PySide6 单窗口：进度/日志/历史/设置/取消/断点重跑 | ✅ |
+| M2 | refine + chapters + summarize + export（端到端产出 notes.md，假 LLM 集成测试通过） | ✅ |
+| M3 | 导出增强（SRT 开关、token 统计已入 meta.json）+ 清理策略打磨 + 文档完善 | 下一步 |
 | M4 | SenseVoice 引擎 / 术语表 / SRT / 批量队列（可选） | |
 
 ## 11. 关键决策记录（ADR 摘要）

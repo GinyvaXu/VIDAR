@@ -1,4 +1,4 @@
-# BiliVideoKing 需求规格 v0.1
+# VIDAR 需求规格 v0.1
 
 > 一句话定位：**把 B 站视频变成可读、可检索、可追溯的知识文档（文稿 + 摘要 + 章节 + 大纲）的命令行工具。**
 > 参考项目：VideoCaptioner（仅借鉴设计思路，不复制其代码，避免 GPL-3.0 传染）。
@@ -64,10 +64,10 @@ B 站存在大量高质量长视频（技术分享、课程、访谈、测评）
 ### P0 / Must（MVP 必须）
 
 #### FR-1 CLI 入口与配置
-- 单命令完成全流程：`biliking run <BV号|URL>`
-- 支持环境变量与配置文件：`config.toml` + `BILIKING_*` 环境变量
+- 单命令完成全流程：`vidar run <BV号|URL>`
+- 支持环境变量与配置文件：`config.toml` + `VIDAR_*` 环境变量
 - 优先级：命令行参数 > 环境变量 > 配置文件 > 默认值
-- 提供 `biliking doctor`：自检 ffmpeg / GPU / 模型文件 / API Key / 输出目录
+- 提供 `vidar doctor`：自检 ffmpeg / GPU / 模型文件 / API Key / 输出目录
 
 #### FR-2 解析与下载
 - 输入 BV 号或完整 URL（含分 P 指定，如 `?p=2`），解析出 `bvid / cid / 标题 / UP 主 / 时长 / 发布时间`
@@ -145,7 +145,27 @@ B 站存在大量高质量长视频（技术分享、课程、访谈、测评）
 
 ### 明确不做（本期）
 
-- 图形界面、订阅监控、视频烧字幕、公开发布能力
+- Web 界面（桌面 GUI 已按需求补充，见 FR-11）、订阅监控、视频烧字幕、公开发布能力
+
+---
+
+## 3.1 增补需求（第二轮确认）
+
+#### FR-11 图形界面（GUI）[已实现]
+- 技术栈：PySide6 桌面窗口；主题跟随系统
+- 功能范围：URL 输入 + 开始/取消；实时日志面板；8 步进度可视化；打开输出目录/文稿；
+  历史任务列表（双击载入并定位未完成步骤）；设置面板（LLM/ASR/目录，写回 config.toml）；
+  步骤重跑入口（起始步骤下拉）
+- 任务模式：一次一条；不打包 exe（用 `uv run` / `start-gui.bat` 启动）
+- 实现：`src/vidar/gui/`，共享同一套 pipeline 与状态机（与 CLI 等价，产物互通）
+
+#### 增补的工程决策
+- ASR 默认模型定为 `large-v3`（用户确认）
+- LLM 采用 OpenCode Go（`https://opencode.ai/zen/go/v1`）+ `deepseek-v4.1-flash`，Key 走环境变量 `OPENCODE_GO_API_KEY`，不落盘
+- 模型分发：本项目提供 hf-mirror 手动下载指引 + curl 分片脚本（HF 客户端 xet 传输在国内易卡死）
+- Windows GPU 支持：随 `asr` 可选组安装 cuBLAS/cuDNN pip 包，运行时自动注册 DLL 搜索路径
+- ffmpeg 免手动安装：`imageio-ffmpeg` 静态版兜底（系统 ffmpeg 优先）
+- 真实视频验收（23 分钟口播）：全流程 ≈11 分钟，LLM 消耗约 1.3 万输入 / 6.6 万输出 tokens
 
 ---
 
@@ -268,7 +288,7 @@ tags: ["待定/自动生成"]
 
 | 阶段 | 内容 | 验收 |
 |------|------|------|
-| M0 | 项目骨架：uv + CLI + 配置 + doctor | `biliking doctor` 全绿 |
+| M0 | 项目骨架：uv + CLI + 配置 + doctor | `vidar doctor` 全绿 |
 | M1 | 下载 + ASR + 原始逐字稿 | 一条 10 分钟视频产出 `transcript.raw.md` |
 | M2 | 精修 + 章节 + 摘要 + 大纲 | `notes.md` / `outline.md` 可读可用 |
 | M3 | 导出规范 + 续跑 + 清理 + 费用统计 | 中断重跑验证通过 |
@@ -293,7 +313,7 @@ tags: ["待定/自动生成"]
 
 ## 10. 待你拍板的开放问题
 
-1. **项目/命令名**：文档暂用 `biliking`，是否确定？（备选 `bvk`、`bilivideoking`）
+1. **项目/命令名**：已确认为 **VIDAR**（中文音译「维达」，取"视频达意"之意）；命令 `vidar`，旧命令 `biliking` 保留别名
 2. **默认 ASR 模型**：`large-v3` 起步？还是先接 FunASR SenseVoice-Small（中文更快，需多一个依赖）
 3. **精修力度**：默认「标准」（去口水词 + 纠错 + 术语规范）是否合适？是否需要「保守/激进」档位
 
