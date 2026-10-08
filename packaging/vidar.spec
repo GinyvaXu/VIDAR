@@ -35,6 +35,8 @@ for package in ("vidar", "yt-dlp"):
 
 # faster-whisper 资源文件（Silero VAD onnx 模型等，必需）
 datas += collect_data_files("faster_whisper")
+# vidar 内置资源（PDF 中文字体等）
+datas += collect_data_files("vidar")
 
 # CTranslate2 原生库
 binaries = list(collect_dynamic_libs("ctranslate2"))

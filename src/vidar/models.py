@@ -38,6 +38,7 @@ class VideoMeta(BaseModel):
     pubdate: datetime | None = None
     duration_sec: float | None = None
     description: str = ""
+    thumbnail_url: str = ""
     tags: list[str] = Field(default_factory=list)
 
 
@@ -96,12 +97,22 @@ class RefineResult(BaseModel):
 # --------------------------------------------------------------------------- #
 # chapters / summarize 产物
 # --------------------------------------------------------------------------- #
+class FigureHint(BaseModel):
+    """值得配图的时刻（由 LLM 判断，本地映射回时间戳）。"""
+
+    start: float
+    caption: str = ""
+    anchor: int | None = None
+
+
 class Chapter(BaseModel):
     index: int
     title: str
     start: float
     end: float | None = None
     summary: str = ""
+    quote: str = ""
+    figures: list[FigureHint] = Field(default_factory=list)
 
 
 class KeyPoint(BaseModel):

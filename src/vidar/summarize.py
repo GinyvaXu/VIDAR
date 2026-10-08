@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import difflib
 import json
+import os
 from typing import TYPE_CHECKING, Any
 
 from .llm.client import LlmClient
@@ -17,7 +18,7 @@ from .llm.prompts import (
     map_summary_prompt,
     reduce_summary_prompt,
 )
-from .models import Chapter, KeyPoint, RefineResult, SummaryResult
+from .models import Chapter, FigureHint, KeyPoint, RefineResult, SummaryResult
 from .utils.text import chunk_by_chars
 
 if TYPE_CHECKING:
@@ -41,6 +42,14 @@ def _clean_summary(text: str) -> str:
     if any(marker in text for marker in _PLACEHOLDER_MARKERS):
         return ""
     return text
+
+
+def _payload_has_figures(payload: dict) -> bool:
+    """检查 reduce 返回里是否存在任何配图锚点。"""
+    for item in payload.get("chapters") or payload.get("chapter_summaries") or []:
+        if isinstance(item, dict) and item.get("figures"):
+            return True
+    return False
 
 
 def _normalize_anchor(value: object) -> int | None:
@@ -122,6 +131,28 @@ def summarize(
         model=model,
     )
 
+    if os.environ.get("VIDAR_DEBUG_LLM"):
+        ctx.artifact("debug-reduce.json").write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+
+    # 模型偶尔会省略 figures：追加一次强约束请求（仅当整片一个配图锚点都没有）
+    if chapters and not _payload_has_figures(payload):
+        ctx.log.info("reduce 未返回配图锚点，追加一次请求…")
+        stronger = reduce_summary_prompt(
+            json.dumps(points, ensure_ascii=False), chapters_hint
+        ) + (
+            "\n\n补充要求：每个章节对象都必须包含 figures 字段；"
+            "只要该章存在演示/实物/操作/画面，就必须给出至少 1 项"
+            "（anchor 取给定要点的段号，caption 为 ≤20 字图注）。"
+        )
+        try:
+            retry = client.complete_json(stronger, system=REDUCE_SYSTEM, model=model)
+            if _payload_has_figures(retry):
+                payload = retry
+        except Exception as exc:  # noqa: BLE001 - 补充请求失败不影响主流程
+            ctx.log.warning("配图锚点补充请求失败：%s", exc)
+
     start_by_index = {seg.idx: seg.start for seg in refine.segments}
 
     def to_start(anchor: int | None) -> float | None:
@@ -146,11 +177,26 @@ def summarize(
         key_points.append(KeyPoint(text=text, start=start))
 
     summaries: dict[int, str] = {}
-    for item in payload.get("chapter_summaries") or []:
-        if isinstance(item, dict) and isinstance(item.get("chapter_index"), int):
-            summaries[int(item["chapter_index"])] = _clean_summary(
-                str(item.get("summary") or "").strip()
-            )
+    quotes: dict[int, str] = {}
+    figures: dict[int, list[tuple[int, str]]] = {}
+    chapter_items = payload.get("chapters") or payload.get("chapter_summaries") or []
+    for item in chapter_items:
+        if not isinstance(item, dict):
+            continue
+        index = item.get("chapter_index")
+        if not isinstance(index, int):
+            continue
+        summaries[index] = _clean_summary(str(item.get("summary") or "").strip())
+        quotes[index] = str(item.get("quote") or "").strip()
+        collected: list[tuple[int, str]] = []
+        for figure in item.get("figures") or []:
+            if not isinstance(figure, dict):
+                continue
+            anchor = _normalize_anchor(figure.get("anchor"))
+            caption = str(figure.get("caption") or "").strip()
+            if anchor is not None and anchor in start_by_index:
+                collected.append((anchor, caption))
+        figures[index] = collected[:3]  # 每章最多 3 张
 
     merged_chapters = [
         Chapter(
@@ -159,9 +205,24 @@ def summarize(
             start=ch.start,
             end=ch.end,
             summary=summaries.get(ch.index, ""),
+            quote=quotes.get(ch.index, ""),
+            figures=[
+                FigureHint(start=start_by_index[anchor], caption=caption, anchor=anchor)
+                for anchor, caption in figures.get(ch.index, [])
+            ],
         )
         for ch in chapters
     ]
+
+    total_figures = sum(len(ch.figures) for ch in merged_chapters)
+    max_figures = ctx.settings.export.max_images
+    if total_figures > max_figures:
+        ctx.log.warning("配图锚点过多（%d > %d），已截断", total_figures, max_figures)
+        kept = 0
+        for chapter in merged_chapters:
+            room = max(0, max_figures - kept)
+            chapter.figures = chapter.figures[:room]
+            kept += len(chapter.figures)
 
     ctx.emit("progress", step="summarize", done=total + 1, total=total + 1, message="摘要完成")
     return (

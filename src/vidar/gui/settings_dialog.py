@@ -6,6 +6,7 @@ from typing import Any
 
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
@@ -34,6 +35,18 @@ class SettingsDialog(QDialog):
         self.work_dir = QLineEdit(str(settings.paths.work_dir))
         self.keep_media = QCheckBox("保留下载的音频/视频（默认处理完删除）")
         self.keep_media.setChecked(settings.export.keep_media)
+        self.screenshots = QCheckBox("关键帧截图（供 Word/PDF 配图）")
+        self.screenshots.setChecked(settings.export.screenshots)
+        self.pdf = QCheckBox("导出 PDF（阅读/打印）")
+        self.pdf.setChecked(settings.export.pdf)
+        self.pdf_style = QComboBox()
+        self.pdf_style.addItems(["newspaper", "paper"])
+        self.pdf_style.setCurrentText(settings.export.pdf_style)
+        self.pdf_mode = QComboBox()
+        self.pdf_mode.addItems(["full", "brief"])
+        self.pdf_mode.setCurrentText(settings.export.pdf_mode)
+        self.docx = QCheckBox("导出 Word（.docx，可再编辑）")
+        self.docx.setChecked(settings.export.docx)
 
         form = QFormLayout()
         form.addRow("LLM API Base", self.api_base)
@@ -45,6 +58,11 @@ class SettingsDialog(QDialog):
         form.addRow("输出目录", self.output_dir)
         form.addRow("工作目录", self.work_dir)
         form.addRow("", self.keep_media)
+        form.addRow("", self.screenshots)
+        form.addRow("", self.pdf)
+        form.addRow("PDF 风格（newspaper 报刊 / paper 论文）", self.pdf_style)
+        form.addRow("PDF 篇幅（full 全文 / brief 精简）", self.pdf_mode)
+        form.addRow("", self.docx)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
         buttons.button(QDialogButtonBox.Save).setText("保存")
@@ -75,5 +93,10 @@ class SettingsDialog(QDialog):
             },
             "export": {
                 "keep_media": self.keep_media.isChecked(),
+                "screenshots": self.screenshots.isChecked(),
+                "pdf": self.pdf.isChecked(),
+                "pdf_style": self.pdf_style.currentText(),
+                "pdf_mode": self.pdf_mode.currentText(),
+                "docx": self.docx.isChecked(),
             },
         }

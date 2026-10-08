@@ -80,6 +80,17 @@ def run(
     llm_model: str | None = typer.Option(None, "--llm-model", help="LLM 模型名"),
     keep_media: bool = typer.Option(False, "--keep-media", help="保留下载的音视频文件"),
     keep_audio: bool = typer.Option(False, "--keep-audio", help="仅保留音频文件"),
+    pdf: bool = typer.Option(False, "--pdf", help="导出 PDF（阅读/打印，默认报刊风）"),
+    docx: bool = typer.Option(False, "--docx", help="导出 Word（.docx，可再编辑）"),
+    pdf_style: str | None = typer.Option(
+        None, "--pdf-style", help="PDF 风格：newspaper 报刊风 | paper 论文风"
+    ),
+    pdf_mode: str | None = typer.Option(
+        None, "--pdf-mode", help="PDF 篇幅：full 全文 | brief 精简"
+    ),
+    screenshots: bool = typer.Option(
+        True, "--screenshots/--no-screenshots", help="关键帧截图（供 docx/pdf 配图）"
+    ),
     from_step: str | None = typer.Option(None, "--from", help="从指定步骤开始（重置该步及后续）"),
     to_step: str | None = typer.Option(None, "--to", help="执行到指定步骤为止"),
     dry_run: bool = typer.Option(False, "--dry-run", help="只展示执行计划，不实际执行"),
@@ -99,6 +110,16 @@ def run(
         overrides.setdefault("export", {})["keep_media"] = True
     if keep_audio:
         overrides.setdefault("export", {})["keep_audio"] = True
+    if pdf or pdf_style or pdf_mode:
+        overrides.setdefault("export", {})["pdf"] = True
+    if docx:
+        overrides.setdefault("export", {})["docx"] = True
+    if pdf_style:
+        overrides.setdefault("export", {})["pdf_style"] = pdf_style
+    if pdf_mode:
+        overrides.setdefault("export", {})["pdf_mode"] = pdf_mode
+    if not screenshots:
+        overrides.setdefault("export", {})["screenshots"] = False
 
     try:
         settings = _load(config, overrides)

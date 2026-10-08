@@ -18,6 +18,7 @@ from ..chapters import build_chapters
 from ..downloader import download_audio
 from ..errors import DependencyError, NetworkError, VidarError
 from ..export import export_outputs
+from ..frames import extract_figures
 from ..models import AsrResult, Chapter, RefineResult, SummaryResult, VideoMeta
 from ..refine import refine_asr_result
 from ..render import render_asr_transcript, render_refined_transcript
@@ -119,6 +120,7 @@ class ResolveStep:
                 float(info["duration"]) if isinstance(info.get("duration"), (int, float)) else None
             ),
             description=str(info.get("description") or ""),
+            thumbnail_url=str(info.get("thumbnail") or ""),
             tags=[str(t) for t in (info.get("tags") or [])],
         )
         ctx.save_meta(meta)
@@ -236,6 +238,33 @@ class SummarizeStep:
         return {"summary": "summary.json"}
 
 
+class FramesStep:
+    """关键帧截图：下载低清视频，按 LLM 锚点抽帧（供 Word/PDF 配图）。"""
+
+    name = "frames"
+    title = "关键帧截图（抽帧）"
+    milestone: str | None = None
+
+    def run(self, ctx: RunContext) -> dict[str, str]:
+        if not ctx.settings.export.screenshots:
+            ctx.log.info("截图已关闭（export.screenshots=false），跳过抽帧")
+            ctx.artifact("images").mkdir(parents=True, exist_ok=True)
+            ctx.artifact("frames.json").write_text("[]", encoding="utf-8")
+            return {"frames": "frames.json", "images": "images"}
+
+        summary = _load_json_model(ctx, "summary.json", SummaryResult)
+        meta = ctx.meta or _load_json_model(ctx, "meta.json", VideoMeta)
+        frames = extract_figures(
+            ctx,
+            meta,
+            summary,
+            max_height=ctx.settings.export.video_max_height,
+            min_gap=ctx.settings.export.min_gap_sec,
+        )
+        ctx.log.info("抽帧完成：%d 张配图", len(frames))
+        return {"frames": "frames.json", "images": "images"}
+
+
 class ExportStep:
     name = "export"
     title = "导出 Markdown 知识文档"
@@ -259,6 +288,7 @@ def default_steps() -> list[object]:
         RefineStep(),
         ChaptersStep(),
         SummarizeStep(),
+        FramesStep(),
         ExportStep(),
     ]
 
@@ -271,5 +301,6 @@ STEP_ORDER = [
     "refine",
     "chapters",
     "summarize",
+    "frames",
     "export",
 ]

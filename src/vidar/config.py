@@ -109,6 +109,14 @@ class ExportSettings(BaseModel):
     srt: bool = False
     keep_media: bool = False
     keep_audio: bool = False
+    screenshots: bool = True  # 关键帧截图（供 docx/pdf 使用）
+    video_max_height: int = 720  # 抽帧用视频清晰度
+    max_images: int = 40  # 配图软上限（全片）
+    min_gap_sec: float = 15.0  # 相邻配图最小间隔
+    pdf: bool = False  # 导出 PDF（可选）
+    pdf_style: str = "newspaper"  # newspaper | paper
+    pdf_mode: str = "full"  # full | brief
+    docx: bool = False  # 导出 Word（可选）
 
 
 class Settings(BaseModel):
@@ -270,6 +278,14 @@ chunk_chars = 3500
 srt = false
 keep_media = false
 keep_audio = false
+screenshots = true            # 关键帧截图（docx/pdf 配图）
+video_max_height = 720        # 抽帧用视频清晰度
+max_images = 40               # 全片配图软上限
+min_gap_sec = 15              # 相邻配图最小间隔（秒）
+pdf = false                   # 导出 PDF（newspaper 报刊风 / paper 论文风）
+pdf_style = "newspaper"
+pdf_mode = "full"             # full 全文 | brief 精简
+docx = false                  # 导出 Word（可再编辑）
 """
 
 

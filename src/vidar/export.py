@@ -1,8 +1,9 @@
-"""导出：notes.md / outline.md / 逐字稿 / meta.json / SRT，并清理媒体文件。"""
+"""导出：notes.md / outline.md / 逐字稿 / meta.json / SRT / Word / PDF，并清理媒体文件。"""
 
 from __future__ import annotations
 
 import json
+import shutil
 from datetime import datetime
 from typing import TYPE_CHECKING
 
@@ -102,6 +103,46 @@ def export_outputs(
         "outline": str(outline_path.resolve()),
         "output_dir": str(out_dir.resolve()),
     }
+
+    # ---- 关键帧图片（frames 步骤产物）----
+    images_src = ctx.artifact("images")
+    images_dst = out_dir / "images"
+    figure_count = 0
+    if images_src.exists():
+        shutil.copytree(images_src, images_dst, dirs_exist_ok=True)
+        figure_count = len(list(images_dst.glob("fig*.jpg")))
+
+    # ---- 可选产出：Word / PDF ----
+    export_cfg = ctx.settings.export
+    if export_cfg.docx or export_cfg.pdf:
+        from .frames import load_frames
+        from .pdf import DocData, render_docx, render_pdf
+
+        doc_data = DocData(
+            meta=meta,
+            summary=summary,
+            refine=refine,
+            asr=asr,
+            frames=load_frames(ctx),
+            images_dir=images_dst,
+            mode=export_cfg.pdf_mode,
+            style=export_cfg.pdf_style,
+        )
+        if export_cfg.docx:
+            docx_path = render_docx(doc_data, out_dir / "notes.docx")
+            artifacts["docx"] = str(docx_path.resolve())
+            ctx.log.info("Word 已导出：%s", docx_path.name)
+        if export_cfg.pdf:
+            pdf_path = render_pdf(doc_data, out_dir / "notes.pdf")
+            artifacts["pdf"] = str(pdf_path.resolve())
+            ctx.log.info(
+                "PDF 已导出（%s / %s）：%s",
+                export_cfg.pdf_style,
+                export_cfg.pdf_mode,
+                pdf_path.name,
+            )
+
+    ctx.log.info("配图 %d 张（images/）", figure_count)
 
     if ctx.settings.export.srt:
         srt_path = out_dir / "transcript.srt"
