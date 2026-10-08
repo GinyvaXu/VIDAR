@@ -31,7 +31,17 @@ VIDAR {{VERSION}} 便携版（Windows x64）
   VIDAR-CLI.exe run BV号 --pdf --pdf-style paper    论文风（封面/摘要/目录）
   VIDAR-CLI.exe run BV号 --pdf --pdf-mode brief     精简版（3-6 页）
   VIDAR-CLI.exe run BV号 --pdf --docx         同时导出 Word（可再编辑）
-  （关键帧截图默认开启；加 --no-screenshots 可关闭）
+  （关键帧+要点截图默认开启；加 --no-screenshots 可关闭）
+
+【排版调试】（不重跑流水线，改完秒出）
+  VIDAR-CLI.exe pdf BV号 --scale compact      字号档位：compact 小 / standard 标准 / large 大
+  VIDAR-CLI.exe pdf BV号 --point-figures sparse   要点截图密度：all 全部 / sparse 隔一取一 / off 关闭
+  VIDAR-CLI.exe pdf BV号 --style paper --scale compact --open   改完直接打开
+  图形界面里点「预览排版…」：内嵌 PDF 预览 + 参数面板，随改随看。
+
+【输出文件命名】（全部为「<变体>版-视频标题」）
+  笔记版-标题.md / 报刊版-标题.pdf / 论文版-标题.pdf / Word版-标题.docx /
+  大纲版-标题.md / 原始稿版-标题.md / 精修稿版-标题.md / 元数据版-标题.json
 
 【LLM 配置】
   任意 OpenAI 兼容服务；Key 可放环境变量（如 OPENCODE_GO_API_KEY），

@@ -123,3 +123,116 @@ def test_render_docx(tmp_path: Path) -> None:
     text = "\n".join(paragraph.text for paragraph in document.paragraphs)
     assert "测试视频" in text
     assert "一句话结论" in text
+
+
+# --------------------------------------------------------------------------- #
+# 0.5.0：字号档位 / 文件名规则 / 要点截图 / 长标题页眉
+# --------------------------------------------------------------------------- #
+def test_resolve_scale() -> None:
+    from vidar.pdf import resolve_scale
+
+    assert resolve_scale("compact") == 0.85
+    assert resolve_scale("standard") == 1.0
+    assert resolve_scale("large") == 1.18
+    assert resolve_scale(0.9) == 0.9
+    assert resolve_scale("0.75") == 0.75
+    assert resolve_scale("bogus") == 1.0
+    assert resolve_scale(9.9) == 1.5  # 夹取上限
+
+
+def test_output_filename_rules() -> None:
+    from vidar.export import output_filename
+
+    # Windows 非法字符（ASCII 冒号）被剔除；全角「：」是合法字符，保留
+    assert output_filename("pdf", "测试:标题", style="newspaper", mode="full") == (
+        "报刊版-测试标题.pdf"
+    )
+    assert output_filename("pdf", "测试：标题", style="paper", mode="brief") == (
+        "论文精简版-测试：标题.pdf"
+    )
+    assert output_filename("notes", "测试") == "笔记版-测试.md"
+    assert output_filename("outline", "测试") == "大纲版-测试.md"
+    assert output_filename("raw", "测试") == "原始稿版-测试.md"
+    assert output_filename("refined", "测试") == "精修稿版-测试.md"
+    assert output_filename("docx", "测试") == "Word版-测试.docx"
+    assert output_filename("meta", "测试") == "元数据版-测试.json"
+
+
+def test_point_thumb_density_filter(tmp_path: Path) -> None:
+    data = _doc_data(tmp_path)
+    Image.new("RGB", (640, 360), (200, 120, 90)).save(data.images_dir / "pt01.jpg")
+    Image.new("RGB", (640, 360), (90, 160, 120)).save(data.images_dir / "pt02.jpg")
+    data.frames.extend(
+        [
+            ExtractedFrame(
+                index=2, start=10.0, caption="要点一", filename="pt01.jpg",
+                kind="point", point_index=1,
+            ),
+            ExtractedFrame(
+                index=3, start=30.0, caption="要点二", filename="pt02.jpg",
+                kind="point", point_index=2,
+            ),
+        ]
+    )
+    assert data.point_figures == "all"
+    assert data.point_thumb(1) is not None and data.point_thumb(2) is not None
+
+    data.point_figures = "sparse"
+    assert data.point_thumb(1) is not None
+    assert data.point_thumb(2) is None
+
+    data.point_figures = "off"
+    assert data.point_thumb(1) is None
+
+
+def test_newspaper_render_with_point_thumbs(tmp_path: Path) -> None:
+    data = _doc_data(tmp_path)
+    Image.new("RGB", (640, 360), (200, 120, 90)).save(data.images_dir / "pt01.jpg")
+    data.frames.append(
+        ExtractedFrame(
+            index=2, start=10.0, caption="要点一", filename="pt01.jpg",
+            kind="point", point_index=1,
+        )
+    )
+    data.scale = 0.85  # 紧凑档位（小字，一页更多内容）
+
+    output = tmp_path / "np-thumbs.pdf"
+    render_pdf(data, output)
+    assert output.exists()
+    assert output.stat().st_size > 2000
+
+    import pymupdf  # type: ignore[import-not-found]
+
+    with pymupdf.open(str(output)) as document:
+        assert document.page_count >= 1
+        text = "".join(document[index].get_text() for index in range(document.page_count))
+    assert "本期看点" in text
+
+
+def test_long_title_header_not_truncated(tmp_path: Path) -> None:
+    """用户反馈：页眉标题显示不全 —— 长标题应完整出现在第二页页眉。"""
+    data = _doc_data(tmp_path)
+    long_title = "给孩子的信：不要追求“快乐人生” 悲与喜的哲学（完整标题不截断测试）"
+    data.meta.title = long_title
+    data.style = "paper"
+    # 加长内容以产生第二页（页眉只在第 2 页起出现）
+    data.refine.segments = [
+        RefinedSegment(
+            idx=index,
+            start=index * 10.0,
+            end=index * 10.0 + 9.0,
+            raw_text=f"原始第{index}段",
+            refined_text=f"精修后的第{index}段文字，用于制造足够长的正文以分页。",
+        )
+        for index in range(60)
+    ]
+
+    output = tmp_path / "paper-long-title.pdf"
+    render_pdf(data, output)
+
+    import pymupdf  # type: ignore[import-not-found]
+
+    with pymupdf.open(str(output)) as document:
+        assert document.page_count >= 2
+        header_text = document[1].get_text()
+    assert long_title in header_text.replace("\u00a0", " "), "第二页页眉应完整显示标题"

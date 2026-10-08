@@ -47,20 +47,27 @@
 - **实现逻辑**：单窗口完成「粘贴链接 → 开始 / 取消 → 步骤进度 + 实时日志 → 打开文稿」；历史任务双击定位未完成步骤；设置面板写回 `config.toml`。
 - **技术手段**：PySide6 / Qt（QThread + 信号槽跨线程回传事件与日志，logging handler 转 UI 信号）。
 
-### 关键帧配图（frames 步骤）
-- **实现逻辑**：summarize 阶段由 LLM 逐章输出「值得配图时刻」（anchor 段号 + ≤20 字图注，0-2 项/章），
-  frames 步骤下载 720p 视频流后按锚点抽帧：dHash 指纹去重、相邻配图最小间隔过滤，
-  图片落盘 `images/` 后立即删除视频文件。
+### 关键帧与要点截图（frames 步骤）
+- **实现逻辑**：两路截图——① 章节配图：summarize 阶段由 LLM 逐章输出「值得配图时刻」（anchor 段号 + ≤20 字图注，0-2 项/章）；
+  ② 要点截图：每个核心要点按时间戳直接抽一帧（不依赖 LLM 判断），报刊「本期看点」左图右文，渲染期按密度档位筛选；
+  frames 步骤下载 720p 视频流后按锚点抽帧：dHash 指纹去重、相邻配图最小间隔过滤，图片落盘 `images/` 后立即删除视频文件。
 - **技术手段**：yt-dlp 仅视频轨下载；PyAV 按时间点 seek + decode 取帧；Pillow 编码 JPEG；
-  LLM 全程只接触段号，时间戳由本地映射（与摘要锚点同一套机制）。
+  LLM 全程只接触段号，时间戳由本地映射（与摘要锚点同一套机制，兼容区间/字符串锚点，缺失时按相邻要点插值兜底）。
 
 ### Word 导出与 PDF 排版
-- **实现逻辑**：导出阶段可选生成 `notes.docx`（标题/摘要/要点/章节金句/配图/全文，含时间戳）与
-  `notes.pdf`（两种 A4 打印版式：报刊风=双栏+报头+看点框+金句；论文风=标题区+摘要+目录+编号章节+尾注）。
-  正文档位默认全文（精修稿按章节分组），`brief` 档只出摘要与章节小结。
+- **实现逻辑**：导出阶段可选生成 `Word版-标题.docx`（标题/摘要/要点/章节金句/配图/全文，含时间戳）与
+  `报刊版-标题.pdf` / `论文版-标题.pdf`（两种 A4 打印版式：报刊风=双栏+报头+看点框（含要点缩略图）+金句；
+  论文风=标题区+摘要+目录+编号章节+尾注）。正文档位默认全文（精修稿按章节分组），`brief` 档只出摘要与章节小结；
+  字号档位 `pdf_scale`（0.85/1.0/1.18 或任意系数）缩放全部字号与间距；输出文件统一 `<变体>版-<标题>` 命名。
 - **技术手段**：python-docx（eastAsia 字体设定，宋体正文/微软雅黑标题）；ReportLab Platypus
-  （多栏 Frame、TableOfContents 两遍渲染 + bookmarkPage、canvas 页眉页脚、图注 flowable）；
+  （多栏 Frame、TableOfContents 两遍渲染 + bookmarkPage、canvas 页眉页脚自适应缩放、表格跨栏分页、图注 flowable）；
   内置思源宋体子集（OFL，构建期 fonttools 实例化+GB2312 子集化，PDF 仅嵌入实际用字）。
+
+### 排版快速调试（预览窗口 / 独立重渲染）
+- **实现逻辑**：`vidar pdf <BV>` 与 GUI「预览排版…」共享同一重渲染通道：直接读 `work/<key>/` 已有产物组装
+  DocData（不触发任何 LLM/ASR），改风格/篇幅/字号/截图密度后数秒重出 PDF；GUI 内嵌 PDF 预览，随改随看。
+- **技术手段**：`vidar/rerender.py` 复用 PDF 渲染入口；PySide6 QtPdf（QPdfDocument + QPdfView）做内嵌预览，
+  渲染放 QThread 防卡 UI；PyInstaller 打包时补充 QtPdf/QtPdfWidgets hiddenimports。
 
 ### 便携版构建与 GPU 按需安装
 - **实现逻辑**：PyInstaller onedir 打包 GUI 与 CLI 双 exe（共享运行时目录）。默认**精简包**（约 250MB，不含 CUDA，音频解码用 PyAV 无需 ffmpeg）；N 卡用户运行 `vidar gpu install` 从 PyPI 镜像安装 cuBLAS/cuDNN 实测最小集；`build_portable.ps1 -WithCuda` 可构建内置 CUDA 的完整版。模型目录外置（约 3GB，可复制）。

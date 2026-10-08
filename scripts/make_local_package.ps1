@@ -60,6 +60,8 @@ screenshots = true
 pdf = true
 pdf_style = "newspaper"
 pdf_mode = "full"
+pdf_scale = "standard"
+point_figures = "all"
 docx = true
 "@
 $config = $config -replace "`r?`n", $configNewline

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -88,6 +89,12 @@ def run(
     pdf_mode: str | None = typer.Option(
         None, "--pdf-mode", help="PDF 篇幅：full 全文 | brief 精简"
     ),
+    pdf_scale: str | None = typer.Option(
+        None, "--pdf-scale", help="字号档位：compact 小 | standard 标准 | large 大"
+    ),
+    point_figures: str | None = typer.Option(
+        None, "--point-figures", help="要点截图密度：all 全部 | sparse 隔一取一 | off 关闭"
+    ),
     screenshots: bool = typer.Option(
         True, "--screenshots/--no-screenshots", help="关键帧截图（供 docx/pdf 配图）"
     ),
@@ -118,6 +125,10 @@ def run(
         overrides.setdefault("export", {})["pdf_style"] = pdf_style
     if pdf_mode:
         overrides.setdefault("export", {})["pdf_mode"] = pdf_mode
+    if pdf_scale:
+        overrides.setdefault("export", {})["pdf_scale"] = pdf_scale
+    if point_figures:
+        overrides.setdefault("export", {})["point_figures"] = point_figures
     if not screenshots:
         overrides.setdefault("export", {})["screenshots"] = False
 
@@ -163,6 +174,63 @@ def run(
         for name, title, status in runner.summary_rows():
             table.add_row(name, title, status)
         console.print(table)
+
+
+def _open_path(path: Path) -> None:
+    """用系统默认程序打开文件/目录。"""
+    import subprocess
+
+    if sys.platform == "win32":
+        os.startfile(str(path))  # type: ignore[attr-defined]
+    elif sys.platform == "darwin":
+        subprocess.Popen(["open", str(path)])
+    else:
+        subprocess.Popen(["xdg-open", str(path)])
+
+
+# --------------------------------------------------------------------------- #
+# pdf（单独重渲染，快速调试排版）
+# --------------------------------------------------------------------------- #
+@app.command()
+def pdf(
+    source: str = typer.Argument(..., help="BV 号或视频 URL（需已完整跑过一次）"),
+    config: Path | None = typer.Option(None, "--config", help="指定配置文件路径"),
+    style: str | None = typer.Option(None, "--style", help="newspaper 报刊风 | paper 论文风"),
+    mode: str | None = typer.Option(None, "--mode", help="full 全文 | brief 精简"),
+    scale: str | None = typer.Option(
+        None, "--scale", help="字号档位：compact 小 | standard 标准 | large 大（或 0.6–1.5 数字）"
+    ),
+    point_figures: str | None = typer.Option(
+        None, "--point-figures", help="要点截图：all 全部 | sparse 隔一取一 | off 关闭"
+    ),
+    thumb_mm: float | None = typer.Option(None, "--thumb-mm", help="要点缩略图宽度（mm，默认 28）"),
+    docx: bool = typer.Option(False, "--docx", help="同时重导 Word"),
+    open_file: bool = typer.Option(False, "--open", help="完成后用系统默认程序打开 PDF"),
+) -> None:
+    """单独重渲染 PDF（风格/篇幅/字号/要点截图密度），不重跑流水线，适合反复调试。"""
+    from .rerender import rerender_task
+
+    try:
+        settings = _load(config)
+        _setup_logs(settings, quiet=True)
+        artifacts = rerender_task(
+            settings,
+            source,
+            style=style,
+            mode=mode,
+            scale=scale,
+            point_figures=point_figures,
+            point_thumb_mm=thumb_mm,
+            docx=docx,
+        )
+    except VidarError as exc:
+        _fail(exc)
+        return
+
+    for kind, path in artifacts.items():
+        console.print(f"[green]✓[/green] {kind} → [cyan]{path}[/cyan]")
+    if open_file and "pdf" in artifacts:
+        _open_path(artifacts["pdf"])
 
 
 # --------------------------------------------------------------------------- #

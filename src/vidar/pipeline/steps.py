@@ -260,6 +260,7 @@ class FramesStep:
             summary,
             max_height=ctx.settings.export.video_max_height,
             min_gap=ctx.settings.export.min_gap_sec,
+            extract_points=ctx.settings.export.point_figures != "off",
         )
         ctx.log.info("抽帧完成：%d 张配图", len(frames))
         return {"frames": "frames.json", "images": "images"}

@@ -32,6 +32,7 @@ from .theme import (
     HAIRLINE,
     MUTED,
     RULE,
+    draw_fitted_text,
     figure_flowables,
     para,
     points_box,
@@ -51,23 +52,19 @@ COL_GAP = 4 * mm
 NUMERALS = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫"
 
 
-def _short_title(data: DocData, limit: int = 24) -> str:
-    title = data.meta.title.replace("\n", " ").strip()
-    return title if len(title) <= limit else title[: limit - 1] + "…"
-
-
-def _build_styles() -> dict:
+def _build_styles(scale: float = 1.0) -> dict:
+    s = scale
     return {
-        "info": para("np-info", size=8.5, leading=1.4, align=TA_CENTER, color=MUTED),
-        "title": para("np-title", size=23, leading=1.18, align=TA_CENTER, bold=True),
-        "lead": para("np-lead", size=12.5, leading=1.5, align=TA_CENTER, color=MUTED),
-        "h2": para("np-h2", size=13.5, leading=1.3, bold=True, keep_with_next=True),
-        "chapter_lead": para("np-chapter-lead", size=10, leading=1.5, color=MUTED),
-        "body": para("np-body", size=10.5, leading=1.65, align=TA_JUSTIFY),
-        "quote": para("np-quote", size=10, leading=1.55, color=MUTED),
-        "caption": para("np-caption", size=8.5, leading=1.4, align=TA_CENTER, color=MUTED),
-        "box_title": para("np-box-title", size=11, leading=1.3, bold=True),
-        "box_item": para("np-box-item", size=9.5, leading=1.55),
+        "info": para("np-info", size=8.5 * s, leading=1.4, align=TA_CENTER, color=MUTED),
+        "title": para("np-title", size=23 * s, leading=1.18, align=TA_CENTER, bold=True),
+        "lead": para("np-lead", size=12.5 * s, leading=1.5, align=TA_CENTER, color=MUTED),
+        "h2": para("np-h2", size=13.5 * s, leading=1.3, bold=True, keep_with_next=True),
+        "chapter_lead": para("np-chapter-lead", size=10 * s, leading=1.5, color=MUTED),
+        "body": para("np-body", size=10.5 * s, leading=1.65, align=TA_JUSTIFY),
+        "quote": para("np-quote", size=10 * s, leading=1.55, color=MUTED),
+        "caption": para("np-caption", size=8.5 * s, leading=1.4, align=TA_CENTER, color=MUTED),
+        "box_title": para("np-box-title", size=11 * s, leading=1.3, bold=True),
+        "box_item": para("np-box-item", size=9.5 * s, leading=1.55),
     }
 
 
@@ -124,16 +121,26 @@ def _masthead(data: DocData, styles: dict) -> tuple[list, float]:
 
 def _paint_footer(canvas, doc, data: DocData, *, header: bool) -> None:  # noqa: ANN001
     canvas.saveState()
-    canvas.setFont(FONT_REGULAR, 7.5)
     canvas.setFillColor(MUTED)
     if header:
         canvas.setStrokeColor(HAIRLINE)
         canvas.setLineWidth(0.4)
         line_y = PAGE_H - MARGIN_TOP + 7
         canvas.line(MARGIN_X, line_y, PAGE_W - MARGIN_X, line_y)
-        canvas.drawString(MARGIN_X, line_y + 2.5, _short_title(data))
+        # 左上角标题：尽量完整显示（自动缩字号，仍放不下才截断）
+        title = data.meta.title.replace("\n", " ").strip()
+        draw_fitted_text(
+            canvas,
+            title,
+            MARGIN_X,
+            line_y + 2.5,
+            PAGE_W - 2 * MARGIN_X - 92,
+            size=7.5,
+        )
+        canvas.setFont(FONT_REGULAR, 7.5)
         canvas.drawRightString(PAGE_W - MARGIN_X, line_y + 2.5, "VIDAR 视频文稿")
     footer_y = 10 * mm
+    canvas.setFont(FONT_REGULAR, 7.5)
     canvas.drawString(MARGIN_X, footer_y, data.meta.bvid)
     canvas.drawCentredString(PAGE_W / 2, footer_y, f"— {canvas.getPageNumber()} —")
     canvas.drawRightString(PAGE_W - MARGIN_X, footer_y, datetime.now().strftime("%Y-%m-%d"))
@@ -142,7 +149,7 @@ def _paint_footer(canvas, doc, data: DocData, *, header: bool) -> None:  # noqa:
 
 def build_newspaper(data: DocData) -> Path:
     register_fonts()
-    styles = _build_styles()
+    styles = _build_styles(data.scale)
     masthead_parts, masthead_h = _masthead(data, styles)
 
     col_top = TOP_Y - masthead_h - COL_GAP
@@ -177,18 +184,20 @@ def build_newspaper(data: DocData) -> Path:
     story: list = [NextPageTemplate("later"), *masthead_parts, Spacer(1, 4)]
 
     if data.summary.key_points:
-        points: list[str] = []
+        thumb_width = min(max(data.point_thumb_mm, 16.0), 40.0) * mm
+        items: list = []
         for index, point in enumerate(data.summary.key_points[:12]):
             numeral = NUMERALS[index] if index < len(NUMERALS) else "·"
             stamp = f"　[{format_clock(point.start)}]" if point.start is not None else ""
-            points.append(f"{numeral} {escape(point.text)}{stamp}")
+            items.append((data.point_thumb(index + 1), f"{numeral} {escape(point.text)}{stamp}"))
         story.append(
             points_box(
                 "本期看点",
-                points,
+                items,
                 title_style=styles["box_title"],
                 item_style=styles["box_item"],
                 width=COL_W - 6,
+                thumb_width=thumb_width,
             )
         )
         story.append(Spacer(1, 9))

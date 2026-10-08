@@ -86,20 +86,20 @@ def test_m2_end_to_end_with_fake_llm(monkeypatch, tmp_path: Path) -> None:
     assert (ctx.work_dir / "chapters.json").exists()
     assert (ctx.work_dir / "summary.json").exists()
 
-    notes_files = list((tmp_path / "output").glob("*/notes.md"))
-    assert notes_files, "notes.md 未生成"
+    notes_files = list((tmp_path / "output").glob("*/笔记版-*.md"))
+    assert notes_files, "笔记版 Markdown 未生成"
     notes = notes_files[0].read_text(encoding="utf-8")
     assert "一句话结论" in notes
     assert "核心要点" in notes
     assert "## 章节导航" in notes
     assert "?t=0" in notes  # 跳转链接
 
-    outline = (notes_files[0].parent / "outline.md").read_text(encoding="utf-8")
+    outline = next((notes_files[0].parent).glob("大纲版-*.md")).read_text(encoding="utf-8")
     assert "- 开场（00:00）" in outline
 
-    assert (notes_files[0].parent / "transcript.raw.md").exists()
-    assert (notes_files[0].parent / "transcript.refined.md").exists()
-    assert (notes_files[0].parent / "meta.json").exists()
+    assert next((notes_files[0].parent).glob("原始稿版-*.md"))
+    assert next((notes_files[0].parent).glob("精修稿版-*.md"))
+    assert next((notes_files[0].parent).glob("元数据版-*.json"))
 
 
 def test_resume_skips_done_steps(monkeypatch, tmp_path: Path) -> None:

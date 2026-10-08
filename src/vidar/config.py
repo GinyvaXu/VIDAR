@@ -111,11 +111,14 @@ class ExportSettings(BaseModel):
     keep_audio: bool = False
     screenshots: bool = True  # 关键帧截图（供 docx/pdf 使用）
     video_max_height: int = 720  # 抽帧用视频清晰度
-    max_images: int = 40  # 配图软上限（全片）
-    min_gap_sec: float = 15.0  # 相邻配图最小间隔
+    max_images: int = 40  # 章节配图软上限（全片）
+    min_gap_sec: float = 15.0  # 相邻章节配图最小间隔
     pdf: bool = False  # 导出 PDF（可选）
     pdf_style: str = "newspaper"  # newspaper | paper
     pdf_mode: str = "full"  # full | brief
+    pdf_scale: str = "standard"  # 字号档位：compact 小 | standard 标准 | large 大（或数字 0.6–1.5）
+    point_figures: str = "all"  # 报刊要点截图密度：all | sparse 隔一取一 | off
+    point_thumb_mm: float = 28.0  # 报刊「本期看点」缩略图宽度（mm）
     docx: bool = False  # 导出 Word（可选）
 
 
@@ -288,11 +291,14 @@ keep_media = false
 keep_audio = false
 screenshots = true            # 关键帧截图（docx/pdf 配图）
 video_max_height = 720        # 抽帧用视频清晰度
-max_images = 40               # 全片配图软上限
-min_gap_sec = 15              # 相邻配图最小间隔（秒）
+max_images = 40               # 全片章节配图软上限
+min_gap_sec = 15              # 相邻章节配图最小间隔（秒）
 pdf = false                   # 导出 PDF（newspaper 报刊风 / paper 论文风）
 pdf_style = "newspaper"
 pdf_mode = "full"             # full 全文 | brief 精简
+pdf_scale = "standard"        # 字号档位：compact 小 | standard 标准 | large 大（或 0.6–1.5 数字）
+point_figures = "all"         # 报刊要点截图密度：all 全部 | sparse 隔一取一 | off 关闭
+point_thumb_mm = 28           # 报刊「本期看点」缩略图宽度（mm）
 docx = false                  # 导出 Word（可再编辑）
 """
 

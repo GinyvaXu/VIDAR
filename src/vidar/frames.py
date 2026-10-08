@@ -1,9 +1,10 @@
-"""关键帧抽帧：720p 视频下载 → 按 LLM 锚点抽帧 → 去重 → 落盘。
+"""关键帧抽帧：720p 视频下载 → 抽帧（章节锚点 + 每个要点）→ 去重 → 落盘。
 
 产物（work/<key>/）：
     images/cover.jpg     B 站封面（可选）
-    images/fig01.jpg …   关键帧（含 frames.json 元数据）
-    frames.json          [{index, start, caption, file}]
+    images/fig01.jpg …   章节配图（LLM 锚点）
+    images/pt01.jpg …    要点截图（每个要点一帧，渲染时按密度筛选）
+    frames.json          [{index, start, caption, file, kind, point_index}]
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from typing import TYPE_CHECKING
 
 from .errors import CancelledError, DependencyError, NetworkError, VidarError
 from .models import SummaryResult, VideoMeta
+from .utils.text import format_clock
 
 if TYPE_CHECKING:
     from .pipeline.context import RunContext
@@ -31,6 +33,8 @@ class ExtractedFrame:
     start: float
     caption: str
     filename: str
+    kind: str = "figure"  # figure=章节配图 | point=要点截图
+    point_index: int | None = None  # kind=point 时：对应第几个要点（1 起）
 
 
 def download_video(ctx: RunContext, url: str, max_height: int, stem: Path) -> Path:
@@ -156,6 +160,10 @@ def _hamming(a: int, b: int) -> int:
     return bin(a ^ b).count("1")
 
 
+_MAX_POINT_FRAMES = 12  # 要点截图上限（与报刊「本期看点」最多 12 条对齐）
+_POINT_MIN_GAP = 5.0  # 相邻要点截图最小间隔（秒）；章节配图仍用配置的 min_gap
+
+
 def extract_figures(
     ctx: RunContext,
     meta: VideoMeta,
@@ -163,21 +171,35 @@ def extract_figures(
     *,
     max_height: int,
     min_gap: float,
+    extract_points: bool = True,
 ) -> list[ExtractedFrame]:
-    """按 summary 的配图锚点抽帧（含封面），返回全部产物。"""
+    """抽帧（含封面）：章节配图锚点 + 每个要点时刻（供报刊要点截图）。"""
     images_dir = ctx.artifact("images")
     images_dir.mkdir(parents=True, exist_ok=True)
     ctx.emit("progress", step="frames", done=0, total=1, message="准备封面…")
     _download_cover(ctx, meta, images_dir / "cover.jpg")
 
-    # 收集全部锚点（按时间排序）
-    points: list[tuple[float, str]] = []
+    # 章节配图锚点（LLM 判断）
+    figure_points: list[tuple[float, str]] = []
     for chapter in summary.chapters:
         for figure in chapter.figures:
-            points.append((figure.start, figure.caption))
-    points.sort(key=lambda item: item[0])
-    if not points:
-        ctx.log.info("LLM 判断本视频无需配图（figures 为空）")
+            figure_points.append((figure.start, figure.caption))
+    figure_points.sort(key=lambda item: item[0])
+
+    # 要点截图：每个要点一帧（抽全量，渲染时按「密度」档位筛选，便于反复调试）
+    point_points: list[tuple[int, float, str]] = []
+    if extract_points:
+        for order, point in enumerate(summary.key_points, start=1):
+            if point.start is None:
+                continue
+            point_points.append((order, point.start, point.text[:30]))
+            if len(point_points) >= _MAX_POINT_FRAMES:
+                break
+        # 要点顺序未必按时间（LLM 按主题组织）：按时间排序，保证抽帧顺序与间隔判断正确
+        point_points.sort(key=lambda item: item[1])
+
+    if not figure_points and not point_points:
+        ctx.log.info("无需抽帧（LLM 未给配图锚点，且未启用要点截图）")
         _write_frames_json(ctx, [])
         return []
 
@@ -190,52 +212,118 @@ def extract_figures(
 
     frames: list[ExtractedFrame] = []
     hashes: list[int] = []
-    last_time = -1e9
-    total = len(points)
     try:
-        for position, (start, caption) in enumerate(points, start=1):
-            ctx.raise_if_cancelled()
-            if start - last_time < min_gap:
-                ctx.log.info("跳过过近的配图（%.0fs 间隔不足）", start - last_time)
-                continue
-            ctx.emit(
-                "progress",
-                step="frames",
-                done=position - 1,
-                total=total,
-                message=f"抽帧 {position}/{total}（{int(start) // 60:02d}:{int(start) % 60:02d}）",
-            )
-            image = _extract_frame(video, start, ctx.artifact("frame.jpg"))
-            if image is None:
-                ctx.log.warning("第 %d 个锚点抽帧失败（%.1fs）", position, start)
-                continue
-            fingerprint = _dhash(image)
-            if any(_hamming(fingerprint, other) <= 6 for other in hashes):
-                ctx.log.info("跳过重复画面（%.1fs）", start)
-                continue
-            hashes.append(fingerprint)
-            filename = f"fig{len(frames) + 1:02d}.jpg"
-            target = images_dir / filename
-            image.convert("RGB").save(target, "JPEG", quality=85, optimize=True)  # type: ignore[attr-defined]
-            frames.append(
-                ExtractedFrame(
-                    index=len(frames) + 1, start=start, caption=caption, filename=filename
-                )
-            )
-            last_time = start
+        # 抽帧产物每次重建：清掉可能残留的旧截图（以本次 frames.json 为准）
+        for pattern in ("fig*.jpg", "pt*.jpg"):
+            for stale in images_dir.glob(pattern):
+                stale.unlink(missing_ok=True)
+
+        # 先章节配图（优先级高、去重更严），后要点截图（对近似画面更宽容）
+        _extract_many(
+            ctx,
+            video,
+            images_dir,
+            frames,
+            hashes,
+            [(start, caption, "figure", None) for start, caption in figure_points],
+            min_gap=min_gap,
+            dedupe_threshold=6,
+            phase="章节配图",
+        )
+        _extract_many(
+            ctx,
+            video,
+            images_dir,
+            frames,
+            hashes,
+            [(start, caption, "point", order) for order, start, caption in point_points],
+            min_gap=_POINT_MIN_GAP,
+            dedupe_threshold=0,  # 只去精确重复：口播画面近似，要点必须都有图
+            phase="要点截图",
+        )
     finally:
         if not ctx.settings.export.keep_media:
             video.unlink(missing_ok=True)
             ctx.log.info("已清理低清视频文件")
 
-    ctx.emit("progress", step="frames", done=1, total=1, message=f"完成，共 {len(frames)} 张配图")
+    figure_total = sum(1 for frame in frames if frame.kind == "figure")
+    point_total = len(frames) - figure_total
+    ctx.emit(
+        "progress",
+        step="frames",
+        done=1,
+        total=1,
+        message=f"完成：章节配图 {figure_total} 张，要点截图 {point_total} 张",
+    )
     _write_frames_json(ctx, frames)
     return frames
 
 
+def _extract_many(
+    ctx: RunContext,
+    video: Path,
+    images_dir: Path,
+    frames: list[ExtractedFrame],
+    hashes: list[int],
+    points: list[tuple[float, str, str, int | None]],
+    *,
+    min_gap: float,
+    dedupe_threshold: int,
+    phase: str,
+) -> None:
+    """按锚点批量抽帧：限间距、dHash 去重、落盘并累积结果。"""
+    last_time = -1e9
+    total = len(points)
+    for position, (start, caption, kind, point_index) in enumerate(points, start=1):
+        ctx.raise_if_cancelled()
+        if start - last_time < min_gap:
+            ctx.log.info("跳过过近的%s（%.0fs 间隔不足）", phase, start - last_time)
+            continue
+        ctx.emit(
+            "progress",
+            step="frames",
+            done=position - 1,
+            total=total,
+            message=f"{phase} {position}/{total}（{format_clock(start)}）",
+        )
+        image = _extract_frame(video, start, ctx.artifact("frame.jpg"))
+        if image is None:
+            ctx.log.warning("%s：第 %d 个锚点抽帧失败（%.1fs）", phase, position, start)
+            continue
+        fingerprint = _dhash(image)
+        if any(_hamming(fingerprint, other) <= dedupe_threshold for other in hashes):
+            ctx.log.info("跳过重复画面（%s，%s）", phase, format_clock(start))
+            continue
+        hashes.append(fingerprint)
+        if kind == "point":
+            filename = f"pt{point_index:02d}.jpg"
+        else:
+            filename = f"fig{sum(1 for frame in frames if frame.kind == 'figure') + 1:02d}.jpg"
+        target = images_dir / filename
+        image.convert("RGB").save(target, "JPEG", quality=85, optimize=True)  # type: ignore[attr-defined]
+        frames.append(
+            ExtractedFrame(
+                index=len(frames) + 1,
+                start=start,
+                caption=caption,
+                filename=filename,
+                kind=kind,
+                point_index=point_index,
+            )
+        )
+        last_time = start
+
+
 def _write_frames_json(ctx: RunContext, frames: list[ExtractedFrame]) -> None:
     payload = [
-        {"index": f.index, "start": f.start, "caption": f.caption, "file": f.filename}
+        {
+            "index": f.index,
+            "start": f.start,
+            "caption": f.caption,
+            "file": f.filename,
+            "kind": f.kind,
+            "point_index": f.point_index,
+        }
         for f in frames
     ]
     ctx.artifact("frames.json").write_text(
@@ -257,6 +345,10 @@ def load_frames(ctx: RunContext) -> list[ExtractedFrame]:
             start=float(item.get("start", 0.0)),
             caption=str(item.get("caption") or ""),
             filename=str(item.get("file") or ""),
+            kind=str(item.get("kind") or "figure"),
+            point_index=(
+                int(item["point_index"]) if item.get("point_index") is not None else None
+            ),
         )
         for item in payload
         if isinstance(item, dict) and item.get("file")

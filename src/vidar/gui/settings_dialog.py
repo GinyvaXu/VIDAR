@@ -45,6 +45,18 @@ class SettingsDialog(QDialog):
         self.pdf_mode = QComboBox()
         self.pdf_mode.addItems(["full", "brief"])
         self.pdf_mode.setCurrentText(settings.export.pdf_mode)
+        self.pdf_scale = QComboBox()
+        for label, value in (
+            ("紧凑（小字，一页更多内容）", "compact"),
+            ("标准", "standard"),
+            ("大", "large"),
+        ):
+            self.pdf_scale.addItem(label, value)
+        self._select_data(self.pdf_scale, settings.export.pdf_scale)
+        self.point_figures = QComboBox()
+        for label, value in (("全部要点", "all"), ("隔一取一", "sparse"), ("关闭", "off")):
+            self.point_figures.addItem(label, value)
+        self._select_data(self.point_figures, settings.export.point_figures)
         self.docx = QCheckBox("导出 Word（.docx，可再编辑）")
         self.docx.setChecked(settings.export.docx)
 
@@ -62,6 +74,8 @@ class SettingsDialog(QDialog):
         form.addRow("", self.pdf)
         form.addRow("PDF 风格（newspaper 报刊 / paper 论文）", self.pdf_style)
         form.addRow("PDF 篇幅（full 全文 / brief 精简）", self.pdf_mode)
+        form.addRow("PDF 字号档位", self.pdf_scale)
+        form.addRow("报刊要点截图密度", self.point_figures)
         form.addRow("", self.docx)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
@@ -73,6 +87,11 @@ class SettingsDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.addLayout(form)
         layout.addWidget(buttons)
+
+    @staticmethod
+    def _select_data(combo: QComboBox, value: str) -> None:
+        index = combo.findData(value)
+        combo.setCurrentIndex(index if index >= 0 else 0)
 
     def patch(self) -> dict[str, Any]:
         """返回本次编辑的配置片段（用于合并写回）。"""
@@ -97,6 +116,8 @@ class SettingsDialog(QDialog):
                 "pdf": self.pdf.isChecked(),
                 "pdf_style": self.pdf_style.currentText(),
                 "pdf_mode": self.pdf_mode.currentText(),
+                "pdf_scale": self.pdf_scale.currentData(),
+                "point_figures": self.point_figures.currentData(),
                 "docx": self.docx.isChecked(),
             },
         }

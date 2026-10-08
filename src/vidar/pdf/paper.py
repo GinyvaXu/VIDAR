@@ -30,6 +30,7 @@ from .theme import (
     HAIRLINE,
     MUTED,
     RULE,
+    draw_fitted_text,
     figure_flowables,
     keyword_line,
     para,
@@ -65,38 +66,51 @@ class PaperDoc(BaseDocTemplate):
             self.notify("TOCEntry", (0, flowable.getPlainText(), self.page, key))
 
 
-def _build_styles() -> dict:
+def _build_styles(scale: float = 1.0) -> dict:
+    s = scale
     return {
-        "title": para("pp-title", size=19, leading=1.3, align=TA_CENTER, bold=True),
-        "meta": para("pp-meta", size=10, leading=1.5, align=TA_CENTER, color=MUTED),
+        "title": para("pp-title", size=19 * s, leading=1.3, align=TA_CENTER, bold=True),
+        "meta": para("pp-meta", size=10 * s, leading=1.5, align=TA_CENTER, color=MUTED),
         "h1": para(
-            "pp-h1", size=13.5, leading=1.4, bold=True, space_before=10, keep_with_next=True
+            "pp-h1", size=13.5 * s, leading=1.4, bold=True, space_before=10 * s,
+            keep_with_next=True,
         ),
         "sec": para(
-            "pp-sec", size=13.5, leading=1.4, bold=True, space_before=10, keep_with_next=True
+            "pp-sec", size=13.5 * s, leading=1.4, bold=True, space_before=10 * s,
+            keep_with_next=True,
         ),
-        "h2": para("pp-h2", size=11.5, leading=1.4, bold=True, space_before=8, keep_with_next=True),
-        "body": para("pp-body", size=11, leading=1.5, align=TA_JUSTIFY, space_after=6),
-        "abstract": para("pp-abstract", size=10.5, leading=1.55, align=TA_JUSTIFY),
-        "abstract_item": para("pp-abstract-item", size=10.5, leading=1.55),
-        "quote": para("pp-quote", size=10.5, leading=1.55, color=MUTED),
-        "caption": para("pp-caption", size=9, leading=1.4, align=TA_CENTER, color=MUTED),
-        "toc": para("pp-toc", size=10.5, leading=1.9),
-        "note": para("pp-note", size=9, leading=1.5, color=MUTED),
+        "h2": para(
+            "pp-h2", size=11.5 * s, leading=1.4, bold=True, space_before=8 * s,
+            keep_with_next=True,
+        ),
+        "body": para("pp-body", size=11 * s, leading=1.5, align=TA_JUSTIFY, space_after=6 * s),
+        "abstract": para("pp-abstract", size=10.5 * s, leading=1.55, align=TA_JUSTIFY),
+        "abstract_item": para("pp-abstract-item", size=10.5 * s, leading=1.55),
+        "quote": para("pp-quote", size=10.5 * s, leading=1.55, color=MUTED),
+        "caption": para("pp-caption", size=9 * s, leading=1.4, align=TA_CENTER, color=MUTED),
+        "toc": para("pp-toc", size=10.5 * s, leading=1.9),
+        "note": para("pp-note", size=9 * s, leading=1.5, color=MUTED),
     }
 
 
 def _decorate(canvas, doc, data: DocData) -> None:  # noqa: ANN001
     canvas.saveState()
-    canvas.setFont(FONT_REGULAR, 8)
     canvas.setFillColor(MUTED)
     canvas.setStrokeColor(HAIRLINE)
     canvas.setLineWidth(0.4)
     line_y = PAGE_H - 14 * mm
     canvas.line(MARGIN_X, line_y, PAGE_W - MARGIN_X, line_y)
-    title = data.meta.title.replace("\n", " ")
-    short = title if len(title) <= 30 else title[:29] + "…"
-    canvas.drawString(MARGIN_X, line_y + 2.5, short)
+    # 页眉标题：尽量完整显示（自动缩字号，仍放不下才截断）
+    title = data.meta.title.replace("\n", " ").strip()
+    draw_fitted_text(
+        canvas,
+        title,
+        MARGIN_X,
+        line_y + 2.5,
+        PAGE_W - 2 * MARGIN_X - 40,
+        size=8,
+    )
+    canvas.setFont(FONT_REGULAR, 8)
     canvas.drawRightString(PAGE_W - MARGIN_X, line_y + 2.5, "VIDAR")
     canvas.drawCentredString(PAGE_W / 2, 11 * mm, f"— {canvas.getPageNumber()} —")
     canvas.restoreState()
@@ -104,7 +118,7 @@ def _decorate(canvas, doc, data: DocData) -> None:  # noqa: ANN001
 
 def build_paper(data: DocData) -> Path:
     register_fonts()
-    styles = _build_styles()
+    styles = _build_styles(data.scale)
     meta = data.meta
 
     document = PaperDoc(

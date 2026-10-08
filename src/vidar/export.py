@@ -1,4 +1,7 @@
-"""导出：notes.md / outline.md / 逐字稿 / meta.json / SRT / Word / PDF，并清理媒体文件。"""
+"""导出：Markdown / 逐字稿 / meta / SRT / Word / PDF，并清理媒体文件。
+
+文件名规则：`<变体>版-<视频标题>.<ext>`（如「报刊版-标题.pdf」「论文版-标题.pdf」）。
+"""
 
 from __future__ import annotations
 
@@ -15,9 +18,33 @@ from .render import (
     render_refined_transcript,
     render_srt,
 )
+from .utils.text import slugify
 
 if TYPE_CHECKING:
     from .pipeline.context import RunContext
+
+# 变体名前缀（role → 前缀/扩展名）；PDF 按风格单列
+_FILE_VARIANTS = {
+    "notes": ("笔记", "md"),
+    "outline": ("大纲", "md"),
+    "raw": ("原始稿", "md"),
+    "refined": ("精修稿", "md"),
+    "srt": ("字幕", "srt"),
+    "meta": ("元数据", "json"),
+    "docx": ("Word", "docx"),
+}
+
+
+def output_filename(role: str, title: str, *, style: str = "newspaper", mode: str = "full") -> str:
+    """按「<变体>版-<视频标题>」规则生成输出文件名。"""
+    slug = slugify(title)
+    if role == "pdf":
+        variant = "论文" if style == "paper" else "报刊"
+        if mode == "brief":
+            variant += "精简"
+        return f"{variant}版-{slug}.pdf"
+    prefix, ext = _FILE_VARIANTS.get(role, (role, "bin"))
+    return f"{prefix}版-{slug}.{ext}"
 
 
 def build_export_meta(
@@ -82,11 +109,11 @@ def export_outputs(
     out_dir = ctx.final_output_dir(meta.title, published)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    notes_path = out_dir / "notes.md"
-    outline_path = out_dir / "outline.md"
-    raw_path = out_dir / "transcript.raw.md"
-    refined_path = out_dir / "transcript.refined.md"
-    meta_path = out_dir / "meta.json"
+    notes_path = out_dir / output_filename("notes", meta.title)
+    outline_path = out_dir / output_filename("outline", meta.title)
+    raw_path = out_dir / output_filename("raw", meta.title)
+    refined_path = out_dir / output_filename("refined", meta.title)
+    meta_path = out_dir / output_filename("meta", meta.title)
 
     asr_label = f"{asr.engine} / {asr.model}"
     notes_path.write_text(render_notes(meta, summary, asr_model=asr_label), encoding="utf-8")
@@ -108,9 +135,16 @@ def export_outputs(
     images_src = ctx.artifact("images")
     images_dst = out_dir / "images"
     figure_count = 0
+    point_count = 0
     if images_src.exists():
+        images_dst.mkdir(parents=True, exist_ok=True)
+        # 清掉旧一轮截图，避免输出目录残留过期图片
+        for pattern in ("fig*.jpg", "pt*.jpg"):
+            for stale in images_dst.glob(pattern):
+                stale.unlink(missing_ok=True)
         shutil.copytree(images_src, images_dst, dirs_exist_ok=True)
-        figure_count = len(list(images_dst.glob("fig*.jpg")))
+        figure_count = sum(1 for _ in images_dst.glob("fig*.jpg"))
+        point_count = sum(1 for _ in images_dst.glob("pt*.jpg"))
 
     # ---- 可选产出：Word / PDF ----
     export_cfg = ctx.settings.export
@@ -127,25 +161,34 @@ def export_outputs(
             images_dir=images_dst,
             mode=export_cfg.pdf_mode,
             style=export_cfg.pdf_style,
+            scale=export_cfg.pdf_scale,
+            point_figures=export_cfg.point_figures,
+            point_thumb_mm=export_cfg.point_thumb_mm,
         )
         if export_cfg.docx:
-            docx_path = render_docx(doc_data, out_dir / "notes.docx")
+            docx_path = render_docx(doc_data, out_dir / output_filename("docx", meta.title))
             artifacts["docx"] = str(docx_path.resolve())
             ctx.log.info("Word 已导出：%s", docx_path.name)
         if export_cfg.pdf:
-            pdf_path = render_pdf(doc_data, out_dir / "notes.pdf")
+            pdf_path = render_pdf(
+                doc_data,
+                out_dir / output_filename(
+                    "pdf", meta.title, style=doc_data.style, mode=doc_data.mode
+                ),
+            )
             artifacts["pdf"] = str(pdf_path.resolve())
             ctx.log.info(
-                "PDF 已导出（%s / %s）：%s",
+                "PDF 已导出（%s / %s / 字号 %s）：%s",
                 export_cfg.pdf_style,
                 export_cfg.pdf_mode,
+                export_cfg.pdf_scale,
                 pdf_path.name,
             )
 
-    ctx.log.info("配图 %d 张（images/）", figure_count)
+    ctx.log.info("配图：章节 %d 张 / 要点 %d 张（images/）", figure_count, point_count)
 
     if ctx.settings.export.srt:
-        srt_path = out_dir / "transcript.srt"
+        srt_path = out_dir / output_filename("srt", meta.title)
         srt_path.write_text(render_srt(refine, asr), encoding="utf-8")
         artifacts["srt"] = str(srt_path.resolve())
 

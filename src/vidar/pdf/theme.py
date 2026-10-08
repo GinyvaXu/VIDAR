@@ -72,6 +72,29 @@ def para(
     )
 
 
+def draw_fitted_text(
+    canvas,  # noqa: ANN001 - reportlab canvas
+    text: str,
+    x: float,
+    y: float,
+    max_width: float,
+    *,
+    font: str = FONT_REGULAR,
+    size: float = 7.5,
+    min_size: float = 5.5,
+) -> None:
+    """在 max_width 内尽量完整地绘制文本：先自动缩小字号，仍放不下才截断。"""
+    current = size
+    while current > min_size + 1e-9 and pdfmetrics.stringWidth(text, font, current) > max_width:
+        current = max(min_size, current - 0.25)
+    if pdfmetrics.stringWidth(text, font, current) > max_width:
+        while text and pdfmetrics.stringWidth(text + "…", font, current) > max_width:
+            text = text[:-1]
+        text += "…"
+    canvas.setFont(font, current)
+    canvas.drawString(x, y, text)
+
+
 def figure_flowables(
     path: Path,
     caption: str,
@@ -119,30 +142,59 @@ def quote_flowable(text: str, style: ParagraphStyle) -> Table:
 
 def points_box(
     title: str,
-    points: list[str],
+    points: list,
     *,
     title_style: ParagraphStyle,
     item_style: ParagraphStyle,
     width: float,
+    thumb_width: float = 0.0,
 ) -> Table:
-    """「本期看点」要点框：细边框、无底色（打印友好）。"""
-    rows = [[Paragraph(title, title_style)]] + [
-        [Paragraph(point, item_style)] for point in points
-    ]
-    table = Table(rows, colWidths=[width])
-    table.setStyle(
-        TableStyle(
-            [
-                ("BOX", (0, 0), (-1, -1), 0.7, RULE),
-                ("LINEBELOW", (0, 0), (0, 0), 0.4, HAIRLINE),
-                ("LEFTPADDING", (0, 0), (-1, -1), 8),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-                ("TOPPADDING", (0, 0), (-1, -1), 5),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-            ]
-        )
+    """「本期看点」要点框：细边框、无底色（打印友好）。
+
+    points 元素为 str，或 (缩略图 Path | None, str) 二元组（带要点截图）。
+    thumb_width > 0 且存在截图时，自动切换为「左图右文」两列布局。
+    """
+    has_thumb = thumb_width > 0 and any(
+        isinstance(item, tuple) and item[0] is not None for item in points
     )
+    rows: list[list] = [[Paragraph(title, title_style)]]
+    for item in points:
+        thumb, text = item if isinstance(item, tuple) else (None, item)
+        if has_thumb:
+            rows.append([_thumb_flowable(thumb, thumb_width), Paragraph(text, item_style)])
+        else:
+            rows.append([Paragraph(text, item_style)])
+
+    col_widths = [thumb_width, width - thumb_width] if has_thumb else [width]
+    table = Table(rows, colWidths=col_widths, splitByRow=1)
+    commands = [
+        ("BOX", (0, 0), (-1, -1), 0.7, RULE),
+        ("LINEBELOW", (0, 0), (-1, 0), 0.4, HAIRLINE),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+    ]
+    if has_thumb:
+        commands.append(("SPAN", (0, 0), (1, 0)))
+        commands.append(("VALIGN", (0, 0), (-1, -1), "TOP"))
+    table.setStyle(TableStyle(commands))
     return table
+
+
+def _thumb_flowable(path, width: float):  # noqa: ANN001 - Path | None（避免顶层 import Path 仅为此）
+    """要点缩略图：宽度固定，高度上限为正方形（竖版截图不外扩）。"""
+    if path is None:
+        return Spacer(1, 1)
+    image = RLImage(str(path))
+    ratio = image.imageHeight / max(image.imageWidth, 1)
+    image.drawWidth = width
+    image.drawHeight = width * ratio
+    if image.drawHeight > width:
+        image.drawHeight = width
+        image.drawWidth = width / ratio
+    image.hAlign = "CENTER"
+    return image
 
 
 def keyword_line(keywords: list[str], style: ParagraphStyle) -> Paragraph:
@@ -160,6 +212,7 @@ __all__ = [
     "HAIRLINE",
     "register_fonts",
     "para",
+    "draw_fitted_text",
     "figure_flowables",
     "quote_flowable",
     "points_box",

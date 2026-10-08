@@ -56,6 +56,7 @@ from ..pipeline import (
     resolve_path,
 )
 from ..utils.text import slugify
+from .preview_dialog import PreviewDialog
 from .settings_dialog import SettingsDialog
 
 _STEP_TITLES = {step.name: step.title for step in default_steps()}  # type: ignore[attr-defined]
@@ -198,10 +199,12 @@ class MainWindow(QMainWindow):
         bottom = QHBoxLayout()
         self.open_out_btn = QPushButton("打开输出目录")
         self.open_notes_btn = QPushButton("打开文稿")
+        self.preview_btn = QPushButton("预览排版…")
         self.settings_btn = QPushButton("设置")
         self.refresh_btn = QPushButton("刷新历史")
         bottom.addWidget(self.open_out_btn)
         bottom.addWidget(self.open_notes_btn)
+        bottom.addWidget(self.preview_btn)
         bottom.addStretch(1)
         bottom.addWidget(self.refresh_btn)
         bottom.addWidget(self.settings_btn)
@@ -214,6 +217,7 @@ class MainWindow(QMainWindow):
         self.refresh_btn.clicked.connect(self.refresh_history)
         self.open_out_btn.clicked.connect(lambda: self._open_result(notes=False))
         self.open_notes_btn.clicked.connect(lambda: self._open_result(notes=True))
+        self.preview_btn.clicked.connect(self._open_preview)
 
         self._render_steps({})
         self.refresh_history()
@@ -415,6 +419,27 @@ class MainWindow(QMainWindow):
                 pass
         return out_root if out_root.exists() else None
 
+    def _current_source(self) -> str:
+        """预览/重渲染用的任务来源：最近任务 → 历史选中 → 输入框。"""
+        if self.last_key:
+            return self.last_key
+        item = self.history.currentItem()
+        if item is not None:
+            data = item.data(Qt.UserRole) or {}
+            source = str(data.get("url") or data.get("key") or "")
+            if source:
+                return source
+        return self.url_edit.text().strip()
+
+    def _open_preview(self) -> None:
+        source = self._current_source()
+        if not source:
+            QMessageBox.information(
+                self, "提示", "先跑一次任务，或在历史列表双击载入一条，再打开预览"
+            )
+            return
+        PreviewDialog(self.settings, source, self).exec()
+
     def _open_result(self, *, notes: bool) -> None:
         key = self.last_key
         if not key:
@@ -430,10 +455,10 @@ class MainWindow(QMainWindow):
             return
         target = base
         if notes:
-            for candidate_name in ("notes.md", "transcript.raw.md"):
-                candidate = base / candidate_name
-                if candidate.exists():
-                    target = candidate
+            for pattern in ("笔记版-*.md", "原始稿版-*.md", "notes.md", "transcript.raw.md"):
+                matches = sorted(base.glob(pattern))
+                if matches:
+                    target = matches[0]
                     break
         _open_path(target)
 

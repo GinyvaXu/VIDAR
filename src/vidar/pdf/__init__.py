@@ -8,6 +8,30 @@ from ..errors import DependencyError, VidarError
 from ..frames import ExtractedFrame
 from ..models import AsrResult, RefineResult, SummaryResult, VideoMeta
 
+# 字号档位 → 缩放系数（compact 小字一页能放更多内容）
+SCALE_PRESETS = {"compact": 0.85, "standard": 1.0, "large": 1.18}
+POINT_FIGURE_MODES = ("all", "sparse", "off")
+
+
+def resolve_scale(value: object, default: float = 1.0) -> float:
+    """档位名（compact/standard/large）或数字字符串 → 缩放系数（0.6–1.5）。"""
+    if isinstance(value, bool):
+        return default
+    if isinstance(value, (int, float)):
+        factor = float(value)
+    else:
+        text = str(value or "").strip().lower()
+        if not text:
+            return default
+        if text in SCALE_PRESETS:
+            factor = SCALE_PRESETS[text]
+        else:
+            try:
+                factor = float(text)
+            except ValueError:
+                return default
+    return min(1.5, max(0.6, factor))
+
 
 class DocData:
     """PDF / DOCX 渲染所需的全部数据（从 work 目录产物组装）。"""
@@ -25,6 +49,9 @@ class DocData:
         images_dir: Path,
         mode: str = "full",
         style: str = "newspaper",
+        scale: str | float = "standard",
+        point_figures: str = "all",
+        point_thumb_mm: float = 28.0,
     ) -> None:
         self.meta = meta
         self.summary = summary
@@ -34,6 +61,9 @@ class DocData:
         self.images_dir = images_dir
         self.mode = mode if mode in {"full", "brief"} else "full"
         self.style = style if style in {"newspaper", "paper"} else "newspaper"
+        self.scale = resolve_scale(scale, 1.0)
+        self.point_figures = point_figures if point_figures in POINT_FIGURE_MODES else "all"
+        self.point_thumb_mm = float(point_thumb_mm) if point_thumb_mm else 28.0
 
     # ------------------------------------------------------------------ #
     def chapter_paragraphs(self, chapter) -> list[tuple[float, str]]:
@@ -65,6 +95,19 @@ class DocData:
         if quote and summary and (quote in summary or summary in quote):
             return ""
         return quote
+
+    def point_thumb(self, order: int) -> Path | None:
+        """第 order 个要点（1 起）的截图；按「密度」档位筛选（off / sparse 隔一取一）。"""
+        if self.point_figures == "off":
+            return None
+        if self.point_figures == "sparse" and order % 2 == 0:
+            return None
+        for frame in self.frames:
+            if frame.kind == "point" and frame.point_index == order:
+                path = self.images_dir / frame.filename
+                if path.exists():
+                    return path
+        return None
 
     def cover_image(self) -> Path | None:
         cover = self.images_dir / "cover.jpg"
@@ -105,4 +148,4 @@ def render_docx(data: DocData, output_path: Path) -> Path:
     return build_docx(data, output_path)
 
 
-__all__ = ["DocData", "render_pdf", "render_docx", "VidarError"]
+__all__ = ["DocData", "render_pdf", "render_docx", "resolve_scale", "SCALE_PRESETS", "VidarError"]

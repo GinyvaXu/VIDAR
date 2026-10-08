@@ -9,6 +9,7 @@ from __future__ import annotations
 import difflib
 import json
 import os
+import re
 from typing import TYPE_CHECKING, Any
 
 from .llm.client import LlmClient
@@ -36,6 +37,8 @@ _PLACEHOLDER_MARKERS = (
     "给定要点",
 )
 
+_ANCHOR_NUM = re.compile(r"\d+")
+
 
 def _clean_summary(text: str) -> str:
     """过滤"给定要点未提供…"这类占位话术。"""
@@ -53,28 +56,77 @@ def _payload_has_figures(payload: dict) -> bool:
 
 
 def _normalize_anchor(value: object) -> int | None:
-    """容忍 LLM 返回字符串形式的段号。"""
+    """容忍 LLM 返回的各种锚点格式：整数 / 浮点 / 字符串数字 / 区间（"71-85" 取 71）。"""
     if isinstance(value, bool):
         return None
     if isinstance(value, int):
         return value
-    if isinstance(value, str) and value.strip().isdigit():
-        return int(value.strip())
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        match = _ANCHOR_NUM.search(value)
+        if match:
+            return int(match.group())
     return None
 
 
 def _recover_anchor(text: str, points: list[dict[str, Any]]) -> int | None:
-    """reduce 丢失锚点时，从 map 要点中用模糊匹配找回段号。"""
-    best_ratio = 0.0
+    """reduce 丢失锚点时，从 map 要点中找回段号（相似度 + 二元组重叠）。"""
+    best_score = 0.0
     best_anchor: int | None = None
     for point in points:
         anchor = _normalize_anchor(point.get("anchor"))
         if anchor is None:
             continue
-        ratio = difflib.SequenceMatcher(None, text, str(point.get("text") or "")).ratio()
-        if ratio > best_ratio:
-            best_ratio, best_anchor = ratio, anchor
-    return best_anchor if best_ratio >= 0.45 else None
+        score = _point_match_score(text, str(point.get("text") or ""))
+        if score > best_score:
+            best_score, best_anchor = score, anchor
+    return best_anchor if best_score >= 0.35 else None
+
+
+def _char_bigrams(text: str) -> set[str]:
+    cleaned = "".join(ch for ch in text if not ch.isspace())
+    if len(cleaned) < 2:
+        return {cleaned} if cleaned else set()
+    return {cleaned[i : i + 2] for i in range(len(cleaned) - 1)}
+
+
+def _point_match_score(text: str, other: str) -> float:
+    """要点文本相似度：difflib 比率与字符二元组重叠各占一半。"""
+    if not text or not other:
+        return 0.0
+    ratio = difflib.SequenceMatcher(None, text, other).ratio()
+    left, right = _char_bigrams(text), _char_bigrams(other)
+    overlap = len(left & right) / max(1, min(len(left), len(right)))
+    return 0.5 * ratio + 0.5 * overlap
+
+
+def _fill_missing_starts(key_points: list[KeyPoint], ctx: RunContext) -> None:
+    """仍缺失锚点的要点：按相邻已定位要点等距插值，保证每个要点都有画面时刻。"""
+    total = len(key_points)
+    known = [index for index in range(total) if key_points[index].start is not None]
+    if not known or len(known) == total:
+        return
+    filled = 0
+    for left, right in zip([-1, *known], [*known, total], strict=True):
+        missing = list(range(left + 1, right))
+        if not missing:
+            continue
+        left_start = key_points[left].start if left >= 0 else None
+        right_start = key_points[right].start if right < total else None
+        for order, index in enumerate(missing, start=1):
+            if left_start is not None and right_start is not None:
+                step = (right_start - left_start) / (len(missing) + 1)
+                key_points[index].start = left_start + step * order
+            elif left_start is not None:
+                key_points[index].start = left_start + 60.0 * order
+            elif right_start is not None:
+                key_points[index].start = max(
+                    0.0, right_start - 60.0 * (len(missing) + 1 - order)
+                )
+            filled += 1
+    if filled:
+        ctx.log.info("要点时间戳补全：%d 个要点按相邻位置插值（供要点截图）", filled)
 
 
 def summarize(
@@ -109,6 +161,12 @@ def summarize(
                 points.append({"text": str(item["text"]).strip(), "anchor": item.get("anchor")})
     if not points:
         ctx.log.warning("map 阶段未提炼到任何要点，摘要将可能为空")
+    anchored = sum(1 for point in points if _normalize_anchor(point.get("anchor")) is not None)
+    ctx.log.info("map 要点：%d 条（带锚点 %d 条）", len(points), anchored)
+    if os.environ.get("VIDAR_DEBUG_LLM"):
+        ctx.artifact("debug-map.json").write_text(
+            json.dumps(points, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
 
     ctx.emit(
         "progress",
@@ -161,6 +219,7 @@ def summarize(
         return None
 
     key_points: list[KeyPoint] = []
+    recovered = 0
     for item in payload.get("key_points") or []:
         if not isinstance(item, dict):
             continue
@@ -170,11 +229,18 @@ def summarize(
         start = to_start(_normalize_anchor(item.get("anchor")))
         if start is None:
             # reduce 丢失锚点时，用模糊匹配从 map 要点中找回
-            recovered = _recover_anchor(text, points)
-            start = to_start(recovered)
+            recovered_anchor = _recover_anchor(text, points)
+            start = to_start(recovered_anchor)
             if start is not None:
+                recovered += 1
                 ctx.log.debug("要点锚点已通过模糊匹配恢复：%s", text[:20])
         key_points.append(KeyPoint(text=text, start=start))
+    if key_points:
+        direct = sum(1 for point in key_points if point.start is not None) - recovered
+        ctx.log.info(
+            "要点时间戳：直接命中 %d / 模糊恢复 %d / 共 %d", direct, recovered, len(key_points)
+        )
+    _fill_missing_starts(key_points, ctx)
 
     summaries: dict[int, str] = {}
     quotes: dict[int, str] = {}

@@ -59,6 +59,8 @@ hiddenimports = [
     "onnxruntime",
     "av",
     "tokenizers",
+    "PySide6.QtPdf",  # 排版预览（QtPdf 视图）
+    "PySide6.QtPdfWidgets",
 ]
 
 excludes = ["tkinter", "matplotlib", "PyQt5", "PyQt6", "IPython"]
