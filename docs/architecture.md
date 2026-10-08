@@ -48,7 +48,7 @@ src/vidar/
 │   ├── base.py             # Step 协议 + 执行器（进度事件、取消、续跑）               [M0]
 │   ├── context.py          # RunContext：路径/状态/取消/事件                          [M0]
 │   ├── state.py            # state.json 状态机                                        [M0]
-│   └── steps.py            # 8 个步骤（M1 已实现前 4 个）                             [M1]
+│   └── steps.py            # 9 个步骤（resolve→…→summarize→frames→export）        [M1/M2/0.4]
 ├── gui/
 │   ├── app.py              # PySide6 主窗口 + 任务线程 + 日志流                       [GUI]
 │   └── settings_dialog.py  # 设置面板（写回 config.toml）                             [GUI]

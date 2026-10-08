@@ -38,8 +38,10 @@ BV链接 → 解析视频信息 → 下载（仅音频） → 语音识别（ASR
 - ✂️ **段级精修**：LLM 纠正错别字、去口水词、统一术语；段号与时间戳 1:1 保留，**原文 + 精修双版本可追溯**
 - 🧠 **结构化总结**：map-reduce 生成「一句话结论 + 核心要点 + 章节小结」，要点可点击跳回 B 站对应时间
 - 📝 **知识库导出**：`notes.md`（带 frontmatter，兼容 Obsidian）/ `outline.md` / 逐字稿 / `meta.json`（含 token 统计）
+- 📸 **关键帧配图**：LLM 判断值得配图的时刻，自动抽帧（720p）+ 图注（含时间戳）
+- 📄 **打印级导出**：`notes.pdf`（报刊风双栏 / 论文风目录版式，A4 打印友好）、`notes.docx`（可再编辑）
 - 🖥️ **图形界面**：步骤进度、实时日志、历史任务续跑、设置面板（PySide6）
-- 🔁 **断点续跑**：8 步状态机，取消/崩溃后随时续传，已完成步骤自动跳过
+- 🔁 **断点续跑**：9 步状态机，取消/崩溃后随时续传，已完成步骤自动跳过
 - 📦 **便携版**：GUI + CLI 双 exe，主包约 250MB；N 卡一键接入 GPU（`VIDAR-CLI.exe gpu install`）
 - 🔌 **模型自由**：任意 OpenAI 兼容 LLM（OpenCode Go / DeepSeek / SiliconFlow / Ollama…）
 
@@ -158,6 +160,9 @@ model = "deepseek-v4.1-flash"
 | `vidar run <BV> --from <步骤>` | 从指定步骤续跑（断点恢复） |
 | `vidar run <BV> --to <步骤>` | 只跑到指定步骤 |
 | `vidar run <BV> --keep-media` | 保留音视频文件（默认处理完自动清理） |
+| `vidar run <BV> --pdf` | 追加导出 PDF（`--pdf-style newspaper\|paper`、`--pdf-mode full\|brief`） |
+| `vidar run <BV> --docx` | 追加导出 Word（.docx，可再编辑） |
+| `vidar run <BV> --no-screenshots` | 关闭关键帧截图（默认开启，供 Word/PDF 配图） |
 | `vidar model download/check` | 模型下载 / 校验 |
 | `vidar doctor --net` | 环境自检（含 B 站与 LLM API 连通性） |
 | `vidar config init/show` | 配置管理 |
@@ -168,6 +173,9 @@ model = "deepseek-v4.1-flash"
 ```text
 output/20260626_BV1ed7q63EVZ_视频标题/
 ├── notes.md               # 主文档：一句话结论 + 核心要点 + 章节导航 + 章节小结
+├── notes.pdf              # （可选 --pdf）报刊风 / 论文风，A4 打印版
+├── notes.docx             # （可选 --docx）Word 可编辑版
+├── images/                # 关键帧配图（figNN.jpg + cover.jpg）
 ├── outline.md             # Markdown 大纲（要点按章节归属）
 ├── transcript.raw.md      # 原始逐字稿（带时间戳，保口语原貌）
 ├── transcript.refined.md  # 精修稿（去口水词 / 纠错 / 术语规范）

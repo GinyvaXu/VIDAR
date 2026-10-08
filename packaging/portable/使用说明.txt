@@ -26,6 +26,13 @@ VIDAR {{VERSION}} 便携版（Windows x64）
   验证：VIDAR-CLI.exe doctor（faster-whisper 行显示 "CUDA 设备 1"）
   无 N 卡可跳过：会自动使用 CPU（速度较慢）。
 
+【PDF / Word 导出】（可选，图文并茂，可直接打印）
+  VIDAR-CLI.exe run BV号 --pdf                导出 PDF（默认报刊风 + 全文）
+  VIDAR-CLI.exe run BV号 --pdf --pdf-style paper    论文风（封面/摘要/目录）
+  VIDAR-CLI.exe run BV号 --pdf --pdf-mode brief     精简版（3-6 页）
+  VIDAR-CLI.exe run BV号 --pdf --docx         同时导出 Word（可再编辑）
+  （关键帧截图默认开启；加 --no-screenshots 可关闭）
+
 【LLM 配置】
   任意 OpenAI 兼容服务；Key 可放环境变量（如 OPENCODE_GO_API_KEY），
   或在图形界面「设置」里填写（保存到本目录 config.toml）。

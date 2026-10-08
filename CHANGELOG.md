@@ -1,5 +1,19 @@
 # 更新日志
 
+## [0.4.0] - 2026-10-08
+### Added
+- **关键帧配图**：LLM 逐章判断值得配图的时刻（anchor 段号 + 图注），720p 抽帧、dHash 去重、抽完即删视频
+- **PDF 导出**（`--pdf`）：报刊风（双栏/报头/看点框/金句）与论文风（标题区/摘要/目录/编号章节），
+  内置思源宋体子集、A4 打印友好、图注含时间戳；`--pdf-style` / `--pdf-mode` 切换
+- **Word 导出**（`--docx`）：图文混排、可再编辑
+- 章节金句（quote）由 reduce 阶段顺带产出；配图锚点被模型偶发省略时自动追加一次请求
+- GUI 设置面板新增：截图 / PDF / Word 开关与 PDF 风格、篇幅选择
+- `scripts/preview_pdf.py` 排版预览工具（PDF 逐页渲染 PNG）；`scripts/prepare_fonts.py` 字体准备
+
+### Changed
+- 流水线新增第 9 步 `frames`（关键帧截图）；export 产物新增 `notes.pdf` / `notes.docx` / `images/`
+- 依赖新增（核心）：`reportlab`、`pillow`、`python-docx`、`av`
+
 ## [0.3.1] - 2026-09-29
 ### Added
 - `vidar gpu install`：从 PyPI 镜像一键安装 GPU 运行时（cuBLAS/cuDNN 实测最小集，约 1.2GB 下载 / 1.5GB 磁盘）

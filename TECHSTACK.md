@@ -8,6 +8,7 @@
 | 数据存储 | 无数据库；文件式产物（JSON 中间态 + Markdown 成品），目录 `work/`、`output/` |
 | 前端 | PySide6 桌面界面（跟随系统主题，单窗口） |
 | 构建与打包 | PyInstaller onedir 便携包（默认精简约 250MB；GPU 运行时按需 `gpu install`；Qt 内置） |
+| 排版与导出 | ReportLab（PDF 报刊/论文双模板）、python-docx（Word）、Pillow、PyAV（抽帧） |
 | 测试 | pytest（30 个用例）+ ruff 静态检查 |
 | 外部服务 | 任意 OpenAI 兼容 LLM 端点（当前：OpenCode Go / deepseek-v4.1-flash） |
 | 关键第三方库 | yt-dlp（下载）、faster-whisper + CTranslate2（ASR）、imageio-ffmpeg（转码兜底）、openai（SDK） |
@@ -39,12 +40,27 @@
 - **技术手段**：纯本地模板渲染（不额外调用 LLM），frontmatter 兼容 Obsidian 等工具；输出目录 `output/日期_BV号_标题/`。
 
 ### 断点续跑与任务状态机
-- **实现逻辑**：8 个步骤（resolve / download / audio / asr / refine / chapters / summarize / export）各自产物落盘并写入 `state.json`；已完成步骤自动跳过，`--from` 重置该步及后续；取消或崩溃后从断点续跑。
+- **实现逻辑**：9 个步骤（resolve / download / audio / asr / refine / chapters / summarize / frames / export）各自产物落盘并写入 `state.json`；已完成步骤自动跳过，`--from` 重置该步及后续；取消或崩溃后从断点续跑。
 - **技术手段**：pydantic 序列化状态机 + 产物存在性校验；下载 / 转码 / ASR 支持协作式取消（下载进度钩子、子进程轮询、识别分段检查）。
 
 ### 图形界面（GUI）
 - **实现逻辑**：单窗口完成「粘贴链接 → 开始 / 取消 → 步骤进度 + 实时日志 → 打开文稿」；历史任务双击定位未完成步骤；设置面板写回 `config.toml`。
 - **技术手段**：PySide6 / Qt（QThread + 信号槽跨线程回传事件与日志，logging handler 转 UI 信号）。
+
+### 关键帧配图（frames 步骤）
+- **实现逻辑**：summarize 阶段由 LLM 逐章输出「值得配图时刻」（anchor 段号 + ≤20 字图注，0-2 项/章），
+  frames 步骤下载 720p 视频流后按锚点抽帧：dHash 指纹去重、相邻配图最小间隔过滤，
+  图片落盘 `images/` 后立即删除视频文件。
+- **技术手段**：yt-dlp 仅视频轨下载；PyAV 按时间点 seek + decode 取帧；Pillow 编码 JPEG；
+  LLM 全程只接触段号，时间戳由本地映射（与摘要锚点同一套机制）。
+
+### Word 导出与 PDF 排版
+- **实现逻辑**：导出阶段可选生成 `notes.docx`（标题/摘要/要点/章节金句/配图/全文，含时间戳）与
+  `notes.pdf`（两种 A4 打印版式：报刊风=双栏+报头+看点框+金句；论文风=标题区+摘要+目录+编号章节+尾注）。
+  正文档位默认全文（精修稿按章节分组），`brief` 档只出摘要与章节小结。
+- **技术手段**：python-docx（eastAsia 字体设定，宋体正文/微软雅黑标题）；ReportLab Platypus
+  （多栏 Frame、TableOfContents 两遍渲染 + bookmarkPage、canvas 页眉页脚、图注 flowable）；
+  内置思源宋体子集（OFL，构建期 fonttools 实例化+GB2312 子集化，PDF 仅嵌入实际用字）。
 
 ### 便携版构建与 GPU 按需安装
 - **实现逻辑**：PyInstaller onedir 打包 GUI 与 CLI 双 exe（共享运行时目录）。默认**精简包**（约 250MB，不含 CUDA，音频解码用 PyAV 无需 ffmpeg）；N 卡用户运行 `vidar gpu install` 从 PyPI 镜像安装 cuBLAS/cuDNN 实测最小集；`build_portable.ps1 -WithCuda` 可构建内置 CUDA 的完整版。模型目录外置（约 3GB，可复制）。
