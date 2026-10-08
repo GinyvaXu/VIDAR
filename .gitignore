@@ -26,6 +26,9 @@ versions/
 # 本机调试包稳定入口（junction，指向 versions/ 下最新本机包）
 local/
 
+# 浏览器调试产物（Playwright MCP 临时文件）
+.playwright-mcp/
+
 # tooling caches
 .pytest_cache/
 .ruff_cache/

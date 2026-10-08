@@ -40,7 +40,8 @@ BV链接 → 解析视频信息 → 下载（仅音频） → 语音识别（ASR
 - 📝 **知识库导出**：`笔记版-标题.md`（带 frontmatter，兼容 Obsidian）/ 大纲 / 逐字稿 / 元数据，**所有文件按「<变体>版-视频标题」命名**，独立文件名一目了然
 - 📸 **截图配图**：章节配图（LLM 判断时刻）+ **每个要点的画面截图**（报刊「本期看点」左图右文），720p 抽帧、自动去重
 - 📄 **打印级导出**：报刊风 / 论文风 PDF（A4 双栏报头或封面摘要目录）+ Word；**字号档位**（紧凑小字一页更多 / 标准 / 大）与**要点截图密度**（全部 / 隔一取一 / 关闭）随时可调
-- 🔍 **排版预览窗口**：GUI 内嵌 PDF 预览 + 参数面板，改完即渲染，反复调试到满意再导出（CLI：`vidar pdf`）
+- 📚 **电子书导出（EPUB）**：封面 + 书名页 + 目录 + 导读要点 + 章节配图 + 全文，重排排版、随阅读器字号；可直接导入**微信读书**或电子墨水阅读器（书内结构全 ASCII，规避图片不显示坑）
+- 🔍 **排版预览窗口**：GUI 内嵌 PDF 预览 + 参数面板，改完即渲染，反复调试到满意再导出（CLI：`vidar pdf` / `vidar epub`）
 - 🖥️ **图形界面**：步骤进度、实时日志、历史任务续跑、设置面板（PySide6）
 - 🔁 **断点续跑**：9 步状态机，取消/崩溃后随时续传，已完成步骤自动跳过
 - 📦 **便携版**：GUI + CLI 双 exe，主包约 250MB；N 卡一键接入 GPU（`VIDAR-CLI.exe gpu install`）
@@ -167,8 +168,10 @@ model = "deepseek-v4.1-flash"
 | `vidar run <BV> --keep-media` | 保留音视频文件（默认处理完自动清理） |
 | `vidar run <BV> --pdf` | 追加导出 PDF（`--pdf-style newspaper\|paper`、`--pdf-mode full\|brief`、`--pdf-scale compact\|standard\|large`） |
 | `vidar run <BV> --docx` | 追加导出 Word（.docx，可再编辑） |
+| `vidar run <BV> --epub` | 追加导出 EPUB 电子书（微信读书 / 墨水屏） |
 | `vidar run <BV> --no-screenshots` | 关闭关键帧截图（默认开启，供 Word/PDF 配图） |
 | `vidar pdf <BV>` | **单独重渲染 PDF**（`--style` / `--mode` / `--scale` / `--point-figures` / `--open`），不重跑流水线，适合反复调试排版 |
+| `vidar epub <BV>` | **单独重导出 EPUB**（`--mode full\|brief` / `--open`），不重跑流水线 |
 | `vidar model download/check` | 模型下载 / 校验 |
 | `vidar doctor --net` | 环境自检（含 B 站与 LLM API 连通性） |
 | `vidar config init/show` | 配置管理 |
@@ -181,6 +184,7 @@ output/20260626_BV1ed7q63EVZ_视频标题/
 ├── 笔记版-标题.md          # 主文档：一句话结论 + 核心要点 + 章节导航 + 章节小结
 ├── 报刊版-标题.pdf         # （可选 --pdf）报刊风；论文风为 论文版-标题.pdf（精简模式加「精简」二字）
 ├── Word版-标题.docx        # （可选 --docx）Word 可编辑版
+├── 电子书版-标题.epub      # （可选 --epub）EPUB：导入微信读书 / 墨水屏阅读器
 ├── images/                 # 截图：figNN.jpg 章节配图 + ptNN.jpg 要点截图 + cover.jpg
 ├── 大纲版-标题.md          # Markdown 大纲（要点按章节归属）
 ├── 原始稿版-标题.md        # 原始逐字稿（带时间戳，保口语原貌）

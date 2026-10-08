@@ -59,6 +59,8 @@ class SettingsDialog(QDialog):
         self._select_data(self.point_figures, settings.export.point_figures)
         self.docx = QCheckBox("导出 Word（.docx，可再编辑）")
         self.docx.setChecked(settings.export.docx)
+        self.epub = QCheckBox("导出 EPUB 电子书（微信读书 / 墨水屏）")
+        self.epub.setChecked(settings.export.epub)
 
         form = QFormLayout()
         form.addRow("LLM API Base", self.api_base)
@@ -77,6 +79,7 @@ class SettingsDialog(QDialog):
         form.addRow("PDF 字号档位", self.pdf_scale)
         form.addRow("报刊要点截图密度", self.point_figures)
         form.addRow("", self.docx)
+        form.addRow("", self.epub)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
         buttons.button(QDialogButtonBox.Save).setText("保存")
@@ -119,5 +122,6 @@ class SettingsDialog(QDialog):
                 "pdf_scale": self.pdf_scale.currentData(),
                 "point_figures": self.point_figures.currentData(),
                 "docx": self.docx.isChecked(),
+                "epub": self.epub.isChecked(),
             },
         }

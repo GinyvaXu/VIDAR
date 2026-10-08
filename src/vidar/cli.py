@@ -83,6 +83,7 @@ def run(
     keep_audio: bool = typer.Option(False, "--keep-audio", help="仅保留音频文件"),
     pdf: bool = typer.Option(False, "--pdf", help="导出 PDF（阅读/打印，默认报刊风）"),
     docx: bool = typer.Option(False, "--docx", help="导出 Word（.docx，可再编辑）"),
+    epub: bool = typer.Option(False, "--epub", help="导出 EPUB 电子书（微信读书/墨水屏）"),
     pdf_style: str | None = typer.Option(
         None, "--pdf-style", help="PDF 风格：newspaper 报刊风 | paper 论文风"
     ),
@@ -121,6 +122,8 @@ def run(
         overrides.setdefault("export", {})["pdf"] = True
     if docx:
         overrides.setdefault("export", {})["docx"] = True
+    if epub:
+        overrides.setdefault("export", {})["epub"] = True
     if pdf_style:
         overrides.setdefault("export", {})["pdf_style"] = pdf_style
     if pdf_mode:
@@ -231,6 +234,37 @@ def pdf(
         console.print(f"[green]✓[/green] {kind} → [cyan]{path}[/cyan]")
     if open_file and "pdf" in artifacts:
         _open_path(artifacts["pdf"])
+
+
+# --------------------------------------------------------------------------- #
+# epub（单独重导出电子书）
+# --------------------------------------------------------------------------- #
+@app.command()
+def epub(
+    source: str = typer.Argument(..., help="BV 号或视频 URL（需已完整跑过一次）"),
+    config: Path | None = typer.Option(None, "--config", help="指定配置文件路径"),
+    mode: str | None = typer.Option(None, "--mode", help="full 全文 | brief 精简"),
+    open_file: bool = typer.Option(False, "--open", help="完成后打开 EPUB"),
+) -> None:
+    """单独重导出 EPUB 电子书（微信读书 / 电子墨水阅读器），不重跑流水线。"""
+    from .rerender import rerender_task
+
+    try:
+        settings = _load(config)
+        _setup_logs(settings, quiet=True)
+        artifacts = rerender_task(settings, source, mode=mode, epub=True)
+    except VidarError as exc:
+        _fail(exc)
+        return
+
+    for kind, path in artifacts.items():
+        console.print(f"[green]✓[/green] {kind} → [cyan]{path}[/cyan]")
+    console.print(
+        "[dim]导入方法：微信读书 →「我的」上方搜索「传书到手机」"
+        "（或网页版 reader.qq.com）→ 上传该 EPUB 文件[/dim]"
+    )
+    if open_file and "epub" in artifacts:
+        _open_path(artifacts["epub"])
 
 
 # --------------------------------------------------------------------------- #

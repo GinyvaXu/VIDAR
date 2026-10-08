@@ -1,4 +1,4 @@
-"""导出：Markdown / 逐字稿 / meta / SRT / Word / PDF，并清理媒体文件。
+"""导出：Markdown / 逐字稿 / meta / SRT / Word / PDF / EPUB，并清理媒体文件。
 
 文件名规则：`<变体>版-<视频标题>.<ext>`（如「报刊版-标题.pdf」「论文版-标题.pdf」）。
 """
@@ -32,6 +32,7 @@ _FILE_VARIANTS = {
     "srt": ("字幕", "srt"),
     "meta": ("元数据", "json"),
     "docx": ("Word", "docx"),
+    "epub": ("电子书", "epub"),
 }
 
 
@@ -146,9 +147,9 @@ def export_outputs(
         figure_count = sum(1 for _ in images_dst.glob("fig*.jpg"))
         point_count = sum(1 for _ in images_dst.glob("pt*.jpg"))
 
-    # ---- 可选产出：Word / PDF ----
+    # ---- 可选产出：Word / PDF / EPUB ----
     export_cfg = ctx.settings.export
-    if export_cfg.docx or export_cfg.pdf:
+    if export_cfg.docx or export_cfg.pdf or export_cfg.epub:
         from .frames import load_frames
         from .pdf import DocData, render_docx, render_pdf
 
@@ -184,6 +185,12 @@ def export_outputs(
                 export_cfg.pdf_scale,
                 pdf_path.name,
             )
+        if export_cfg.epub:
+            from .epub_export import render_epub
+
+            epub_path = render_epub(doc_data, out_dir / output_filename("epub", meta.title))
+            artifacts["epub"] = str(epub_path.resolve())
+            ctx.log.info("EPUB 已导出（%s）：%s", export_cfg.pdf_mode, epub_path.name)
 
     ctx.log.info("配图：章节 %d 张 / 要点 %d 张（images/）", figure_count, point_count)
 

@@ -120,6 +120,7 @@ class ExportSettings(BaseModel):
     point_figures: str = "all"  # 报刊要点截图密度：all | sparse 隔一取一 | off
     point_thumb_mm: float = 28.0  # 报刊「本期看点」缩略图宽度（mm）
     docx: bool = False  # 导出 Word（可选）
+    epub: bool = False  # 导出 EPUB 电子书（微信读书 / 墨水屏）
 
 
 class Settings(BaseModel):
@@ -300,6 +301,7 @@ pdf_scale = "standard"        # 字号档位：compact 小 | standard 标准 | l
 point_figures = "all"         # 报刊要点截图密度：all 全部 | sparse 隔一取一 | off 关闭
 point_thumb_mm = 28           # 报刊「本期看点」缩略图宽度（mm）
 docx = false                  # 导出 Word（可再编辑）
+epub = false                  # 导出 EPUB 电子书（微信读书 / 墨水屏）
 """
 
 

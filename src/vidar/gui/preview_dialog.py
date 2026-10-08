@@ -13,6 +13,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QHBoxLayout,
@@ -25,6 +26,16 @@ from PySide6.QtWidgets import (
 
 from ..config import Settings
 from ..errors import VidarError
+
+
+def _open_path(path: Path) -> None:
+    """用系统默认程序打开文件。"""
+    if sys.platform == "win32":
+        os.startfile(str(path))  # type: ignore[attr-defined]
+    elif sys.platform == "darwin":
+        subprocess.Popen(["open", str(path)])
+    else:
+        subprocess.Popen(["xdg-open", str(path)])
 
 
 class RenderWorker(QThread):
@@ -60,6 +71,7 @@ class PreviewDialog(QDialog):
         self._source = source
         self._worker: RenderWorker | None = None
         self._last_pdf: Path | None = None
+        self._last_epub: Path | None = None
 
         # ---- 顶部参数行 ----
         top = QHBoxLayout()
@@ -87,16 +99,22 @@ class PreviewDialog(QDialog):
         ):
             self.points_combo.addItem(label, value)
         self._select(self.points_combo, settings.export.point_figures)
+        self.epub_check = QCheckBox("同时导出电子书（EPUB）")
+        self.epub_check.setChecked(settings.export.epub)
         self.render_btn = QPushButton("重新渲染")
         self.open_btn = QPushButton("用系统程序打开")
         self.open_btn.setEnabled(False)
+        self.epub_btn = QPushButton("打开电子书")
+        self.epub_btn.setEnabled(False)
         top.addWidget(self.style_combo)
         top.addWidget(self.mode_combo)
         top.addWidget(self.scale_combo)
         top.addWidget(self.points_combo)
+        top.addWidget(self.epub_check)
         top.addStretch(1)
         top.addWidget(self.render_btn)
         top.addWidget(self.open_btn)
+        top.addWidget(self.epub_btn)
 
         # ---- 预览区（QtPdf；缺失时降级为提示） ----
         self.view = None
@@ -129,6 +147,7 @@ class PreviewDialog(QDialog):
 
         self.render_btn.clicked.connect(self.render)
         self.open_btn.clicked.connect(self._open_pdf)
+        self.epub_btn.clicked.connect(self._open_epub)
         self.render()
 
     @staticmethod
@@ -147,6 +166,7 @@ class PreviewDialog(QDialog):
             "mode": self.mode_combo.currentData(),
             "scale": self.scale_combo.currentData(),
             "point_figures": self.points_combo.currentData(),
+            "epub": self.epub_check.isChecked(),
         }
         self._worker = RenderWorker(self._settings, self._source, options)
         self._worker.done.connect(self._on_done)
@@ -155,29 +175,40 @@ class PreviewDialog(QDialog):
         self._worker.start()
 
     def _on_done(self, paths: dict) -> None:
-        pdf = Path(str(paths.get("pdf", "")))
-        self._last_pdf = pdf if pdf.exists() else None
+        def existing(key: str) -> Path | None:
+            value = paths.get(key)
+            if not value:
+                return None
+            path = Path(str(value))
+            return path if path.is_file() else None
+
+        self._last_pdf = existing("pdf")
         self.open_btn.setEnabled(self._last_pdf is not None)
+        self._last_epub = existing("epub")
+        self.epub_btn.setEnabled(self._last_epub is not None)
         if self._last_pdf is not None and self._pdf_doc is not None:
             error = self._pdf_doc.load(str(self._last_pdf))
             if self._pdf_error_ok is not None and error != self._pdf_error_ok:
                 self.status.setText(f"预览加载失败（错误码 {error}）：{self._last_pdf}")
                 return
-        self.status.setText(f"✓ 已渲染：{self._last_pdf}")
+        rendered: list[str] = []
+        if self._last_pdf is not None:
+            rendered.append(f"PDF：{self._last_pdf.name}")
+        if self._last_epub is not None:
+            rendered.append(f"EPUB：{self._last_epub.name}")
+        self.status.setText("✓ 已渲染 " + "；".join(rendered) if rendered else "未产出文件")
 
     def _on_failed(self, message: str, hint: str) -> None:
         self.status.setText("渲染失败")
         QMessageBox.critical(self, "渲染失败", message + (f"\n\n{hint}" if hint else ""))
 
     def _open_pdf(self) -> None:
-        if self._last_pdf is None:
-            return
-        if sys.platform == "win32":
-            os.startfile(str(self._last_pdf))  # type: ignore[attr-defined]
-        elif sys.platform == "darwin":
-            subprocess.Popen(["open", str(self._last_pdf)])
-        else:
-            subprocess.Popen(["xdg-open", str(self._last_pdf)])
+        if self._last_pdf is not None:
+            _open_path(self._last_pdf)
+
+    def _open_epub(self) -> None:
+        if self._last_epub is not None:
+            _open_path(self._last_epub)
 
 
 __all__ = ["PreviewDialog"]

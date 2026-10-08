@@ -26,12 +26,18 @@ VIDAR {{VERSION}} 便携版（Windows x64）
   验证：VIDAR-CLI.exe doctor（faster-whisper 行显示 "CUDA 设备 1"）
   无 N 卡可跳过：会自动使用 CPU（速度较慢）。
 
-【PDF / Word 导出】（可选，图文并茂，可直接打印）
+【PDF / Word / 电子书导出】（可选，图文并茂）
   VIDAR-CLI.exe run BV号 --pdf                导出 PDF（默认报刊风 + 全文）
   VIDAR-CLI.exe run BV号 --pdf --pdf-style paper    论文风（封面/摘要/目录）
   VIDAR-CLI.exe run BV号 --pdf --pdf-mode brief     精简版（3-6 页）
   VIDAR-CLI.exe run BV号 --pdf --docx         同时导出 Word（可再编辑）
+  VIDAR-CLI.exe run BV号 --epub               导出 EPUB 电子书（微信读书/墨水屏）
   （关键帧+要点截图默认开启；加 --no-screenshots 可关闭）
+
+【电子书导入微信读书】
+  微信读书 App/网页版 →（电脑端）「传书到手机」→ 上传 电子书版-标题.epub，
+  手机端书架上自动出现；支持多端同步进度。
+  重导命令：VIDAR-CLI.exe epub BV号（--mode brief 精简 / --open 直接打开）
 
 【排版调试】（不重跑流水线，改完秒出）
   VIDAR-CLI.exe pdf BV号 --scale compact      字号档位：compact 小 / standard 标准 / large 大

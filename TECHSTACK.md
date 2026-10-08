@@ -69,6 +69,14 @@
 - **技术手段**：`vidar/rerender.py` 复用 PDF 渲染入口；PySide6 QtPdf（QPdfDocument + QPdfView）做内嵌预览，
   渲染放 QThread 防卡 UI；PyInstaller 打包时补充 QtPdf/QtPdfWidgets hiddenimports。
 
+### EPUB 电子书导出（微信读书 / 墨水屏）
+- **实现逻辑**：`render_epub` 把同一份 DocData 输出为 EPUB 3：封面 → 书名页 → 目录 → 导读（一句话+要点+时间跳转）
+  → 各章（小结/金句/章节配图/全文）→ 尾页；中文只出现在可见正文，**书内文件名/属性值/CSS 全 ASCII**
+  （社区实测「属性带中文」会导致微信读书/Apple Books 图片不显示）；附 `电子书版-标题.epub`。
+- **技术手段**：标准 EPUB 3（mimetype 未压缩居首 + container.xml + OPF + nav.xhtml）并附 toc.ncx 兼容旧阅读器；
+  纯标准库 zipfile 手写打包（零新增依赖）；重排排版 CSS（相对字号/首行缩进/图片 max-width:100%，不内嵌字体）；
+  列表项/属性值统一 HTML 转义防破坏 XML；测试含「包内文件名全 ASCII」等兼容守卫。
+
 ### 便携版构建与 GPU 按需安装
 - **实现逻辑**：PyInstaller onedir 打包 GUI 与 CLI 双 exe（共享运行时目录）。默认**精简包**（约 250MB，不含 CUDA，音频解码用 PyAV 无需 ffmpeg）；N 卡用户运行 `vidar gpu install` 从 PyPI 镜像安装 cuBLAS/cuDNN 实测最小集；`build_portable.ps1 -WithCuda` 可构建内置 CUDA 的完整版。模型目录外置（约 3GB，可复制）。
 - **技术手段**：自定义 `.spec`（双 Analysis + 单 COLLECT，`VIDAR_BUNDLE_CUDA` 开关）；从 nvidia wheel（zip）按白名单提取 DLL（剔除 adv/nvrtc 等非必需项，省约 474MB）；`_MEIPASS` / exe 目录多路径回退；`scripts/build_portable.ps1` 一键构建与归档。

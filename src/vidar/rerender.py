@@ -100,8 +100,9 @@ def rerender_task(
     point_figures: str | None = None,
     point_thumb_mm: float | None = None,
     docx: bool = False,
+    epub: bool = False,
 ) -> dict[str, Path]:
-    """重渲染 PDF（可选 Word），返回产物路径字典。"""
+    """重渲染 PDF（可选 Word / EPUB），返回产物路径字典。"""
     data, out_dir = load_doc_data(
         settings,
         source,
@@ -121,6 +122,11 @@ def rerender_task(
     if docx:
         docx_path = out_dir / output_filename("docx", data.meta.title)
         artifacts["docx"] = render_docx(data, docx_path)
+    if epub:
+        from .epub_export import render_epub
+
+        epub_path = out_dir / output_filename("epub", data.meta.title)
+        artifacts["epub"] = render_epub(data, epub_path)
     return artifacts
 
 
