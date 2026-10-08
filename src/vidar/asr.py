@@ -82,6 +82,11 @@ def cuda_dll_dirs() -> list[Path]:
         roots.append(Path(str(meipass)) / "nvidia")
     executable_dir = Path(sys.executable).resolve().parent
     roots.extend([executable_dir / "nvidia", executable_dir / "_internal" / "nvidia"])
+    # 机器级共享目录：多版本便携包共用一份 GPU 运行时（vidar gpu install --shared）
+    with contextlib.suppress(Exception):
+        from .config import shared_data_dir
+
+        roots.append(shared_data_dir() / "nvidia")
 
     found: list[Path] = []
     seen: set[str] = set()

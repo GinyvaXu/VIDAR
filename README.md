@@ -76,11 +76,15 @@ uv run vidar run "BV1xx411c7mD" --from refine        # 从中间步骤续跑
 powershell -ExecutionPolicy Bypass -File scripts\build_portable.ps1 -Archive
 ```
 
-- **主包精简（约 250MB）**：不含 CUDA 运行时；N 卡用户跑一条命令按需安装：
+- 主包精简（约 250MB）：**N 卡用户跑一条命令安装 GPU 运行时**：
   ```powershell
-  VIDAR-CLI.exe gpu install     # 从 PyPI 镜像下载 cuBLAS/cuDNN（约 1.2GB，实测最小集）
+  VIDAR-CLI.exe gpu install            # 安装到程序目录（单包使用）
+  VIDAR-CLI.exe gpu install --shared   # 安装到机器级共享目录（多版本便携包共用）
   ```
 - 完整内置版（解压后约 2.4GB，开箱即用 GPU）：`build_portable.ps1 -WithCuda`
+- `-Archive` 会**自动产出两份**：
+  - 发布包 → `versions/vX.Y.Z/dist/`（相对模型路径、不含 CUDA、不含密钥）
+  - 本机调试包 → `versions/vX.Y.Z/local/`（模型路径/API/导出开关预配，稳定入口 `local\VIDAR.exe`）
 - 产物内含 `VIDAR.exe`（GUI）、`VIDAR-CLI.exe`（命令行）、`config.toml`、`使用说明.txt`
 
 ## 模型下载（必须一次，约 3.1GB）

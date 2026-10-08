@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 import tomli_w
-from platformdirs import user_config_dir
+from platformdirs import user_config_dir, user_data_dir
 from pydantic import BaseModel, Field
 
 from .errors import ConfigError
@@ -148,6 +148,14 @@ deep_merge = _deep_merge
 
 def default_config_path() -> Path:
     return Path(user_config_dir(APP_NAME)) / "config.toml"
+
+
+def shared_data_dir() -> Path:
+    """机器级共享数据目录（多版本便携包共用，如 GPU 运行时）。
+
+    注意 appauthor=False：避免 platformdirs 默认拼出 `...\\vidar\\vidar`。
+    """
+    return Path(user_data_dir(APP_NAME, appauthor=False))
 
 
 def exe_dir() -> Path | None:

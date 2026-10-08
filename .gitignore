@@ -23,6 +23,9 @@ config.toml
 # ProjectDock 本地归档（仅本地保留、不上传、只增不删）
 versions/
 
+# 本机调试包稳定入口（junction，指向 versions/ 下最新本机包）
+local/
+
 # tooling caches
 .pytest_cache/
 .ruff_cache/

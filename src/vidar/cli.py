@@ -344,15 +344,19 @@ def gpu_install(
     target: Path | None = typer.Option(
         None, "--target", help="安装目录（默认：程序目录 / 当前目录）"
     ),
+    shared: bool = typer.Option(
+        False, "--shared", help="安装到机器级共享目录（多版本便携包共用一份）"
+    ),
     mirror: str = typer.Option("tuna", "--mirror", help="下载源：tuna | aliyun | pypi"),
     full: bool = typer.Option(False, "--full", help="安装全部 DLL（默认最小可用集，已实测）"),
 ) -> None:
-    """从 PyPI 镜像下载 cuBLAS/cuDNN 并安装到程序目录（N 卡加速，约 1.2GB）。"""
+    """从 PyPI 镜像下载 cuBLAS/cuDNN 并安装（N 卡加速，约 1.2GB）。"""
+    from .config import shared_data_dir
     from .gpu_pack import MIRRORS, install_gpu_runtime
 
     if mirror not in MIRRORS:
         _fail(VidarError(f"未知下载源：{mirror}", hint="可选：tuna / aliyun / pypi"))
-    base_dir = target or exe_dir() or Path.cwd()
+    base_dir = target or (shared_data_dir() if shared else None) or exe_dir() or Path.cwd()
     console.print(f"安装目录：{Path(base_dir) / 'nvidia'}")
     console.print(f"下载源　：{MIRRORS[mirror]}")
 

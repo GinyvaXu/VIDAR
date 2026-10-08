@@ -38,6 +38,11 @@ if ($Archive) {
     New-Item -ItemType Directory -Force (Split-Path $dest) | Out-Null
     Move-Item $portable $dest
     Write-Output "已归档：$dest"
+
+    # 额外产出"本机调试包"（模型/API 预配，稳定入口 local/）
+    $local = "versions/v$version/local/VIDAR-v$version-win64-local"
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File "scripts/make_local_package.ps1" -ReleaseDir $dest -OutDir $local -UpdateLink
+    Write-Output "本机包：$local（入口：local\VIDAR.exe）"
 } else {
     Write-Output "构建完成：$portable"
 }
