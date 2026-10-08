@@ -194,6 +194,8 @@ def build_newspaper(data: DocData) -> Path:
         story.append(Spacer(1, 9))
 
     figure_number = 2  # 图 1 是封面
+    # 竖版截图高度上限：以首页栏高为基准（换栏/换页前能放下即可）
+    max_figure_height = max(150.0, min(col_height, (TOP_Y - MARGIN_BOTTOM)) * 0.85)
     for chapter in data.summary.chapters:
         heading = Paragraph(
             f"{chapter.index + 1} · {escape(chapter.title)}　[{format_clock(chapter.start)}]",
@@ -209,7 +211,13 @@ def build_newspaper(data: DocData) -> Path:
 
         for start, caption, path in data.chapter_figures(chapter):
             story += figure_flowables(
-                path, caption, figure_number, start, COL_W - 8, styles["caption"]
+                path,
+                caption,
+                figure_number,
+                start,
+                COL_W - 8,
+                styles["caption"],
+                max_height=max_figure_height,
             )
             figure_number += 1
 

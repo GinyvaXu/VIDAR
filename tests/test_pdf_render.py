@@ -26,7 +26,8 @@ def _doc_data(tmp_path: Path) -> DocData:
     images = tmp_path / "images"
     images.mkdir(exist_ok=True)
     Image.new("RGB", (640, 360), (120, 140, 160)).save(images / "cover.jpg")
-    Image.new("RGB", (640, 360), (80, 90, 100)).save(images / "fig01.jpg")
+    # 竖版截图（手机录屏场景），验证高度封顶逻辑
+    Image.new("RGB", (360, 640), (80, 90, 100)).save(images / "fig01.jpg")
 
     meta = VideoMeta(
         bvid="BV1xx411c7mD",

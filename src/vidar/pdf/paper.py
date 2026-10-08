@@ -190,7 +190,13 @@ def build_paper(data: DocData) -> Path:
 
         for start, caption, path in data.chapter_figures(chapter):
             story += figure_flowables(
-                path, caption, figure_number, start, TEXT_W * 0.82, styles["caption"]
+                path,
+                caption,
+                figure_number,
+                start,
+                TEXT_W * 0.82,
+                styles["caption"],
+                max_height=(TOP_Y - MARGIN_BOTTOM) * 0.8,
             )
             figure_number += 1
 

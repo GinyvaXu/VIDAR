@@ -79,14 +79,18 @@ def figure_flowables(
     start: float,
     width: float,
     caption_style: ParagraphStyle,
+    max_height: float | None = None,
 ) -> list:
-    """配图 + 图注（含时间戳）。"""
+    """配图 + 图注（含时间戳）；max_height 用于限制竖版截图高度（等比缩放）。"""
     from ..utils.text import format_clock
 
     image = RLImage(str(path))
     ratio = image.imageHeight / max(image.imageWidth, 1)
     image.drawWidth = width
     image.drawHeight = width * ratio
+    if max_height is not None and image.drawHeight > max_height:
+        image.drawHeight = max_height
+        image.drawWidth = max_height / ratio
     image.hAlign = "CENTER"
     label = (
         f"图 {number}：{caption}（{format_clock(start)}）"
