@@ -1,7 +1,8 @@
-"""VIDAR 桌面 GUI 主窗口。
+"""VIDAR 桌面 GUI：侧边栏导航 + 卡片式任务流（自绘现代风）。
 
-设计原则：极简单窗口，一条 URL → 开始 → 看进度/日志 → 打开结果。
-所有耗时操作在 QThread 里执行，通过事件信号回传 UI；日志走 logging handler 流转。
+- 页面：任务（跑流水线）/ 历史（任务与产物）/ 模型（下载与管理）/ 关于
+- 主题：明/暗双主题（`[ui].theme = auto|light|dark`），设计 token 集中在 gui/theme.py
+- 耗时操作全部在 QThread：流水线 / 排版渲染（预览窗口）/ 模型下载，经信号回 UI
 """
 
 from __future__ import annotations
@@ -12,13 +13,15 @@ import logging
 import os
 import subprocess
 import sys
+import webbrowser
 from pathlib import Path
 
-from PySide6.QtCore import QObject, Qt, QThread, Signal
+from PySide6.QtCore import QObject, QSize, Qt, QThread, Signal
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
     QDialog,
+    QFrame,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -30,13 +33,14 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
-    QSplitter,
+    QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
+from .. import __version__
 from ..config import (
     Settings,
     deep_merge,
@@ -56,10 +60,17 @@ from ..pipeline import (
     resolve_path,
 )
 from ..utils.text import slugify
+from . import theme
 from .preview_dialog import PreviewDialog
 from .settings_dialog import SettingsDialog
 
 _STEP_TITLES = {step.name: step.title for step in default_steps()}  # type: ignore[attr-defined]
+_NAV_ITEMS = (
+    ("task", "任务", "play"),
+    ("history", "历史", "clock"),
+    ("models", "模型", "cpu"),
+    ("about", "关于", "info"),
+)
 
 
 def _open_path(path: Path) -> None:
@@ -69,6 +80,15 @@ def _open_path(path: Path) -> None:
         subprocess.Popen(["open", str(path)])
     else:
         subprocess.Popen(["xdg-open", str(path)])
+
+
+def _card() -> tuple[QFrame, QVBoxLayout]:
+    frame = QFrame()
+    frame.setObjectName("Card")
+    layout = QVBoxLayout(frame)
+    layout.setContentsMargins(18, 16, 18, 16)
+    layout.setSpacing(10)
+    return frame, layout
 
 
 class _Emitter(QObject):
@@ -119,26 +139,160 @@ class PipelineWorker(QThread):
             self.ctx.cancel()
 
 
+class ModelDownloadWorker(QThread):
+    """模型下载（分片并行 / 断点续传），进度信号回 UI。"""
+
+    progress = Signal(str, int, int)
+    done = Signal(int, int)
+    failed = Signal(str, str)
+
+    def __init__(self, model: str, target: Path, source: str = "hf-mirror") -> None:
+        super().__init__()
+        self._model = model
+        self._target = target
+        self._source = source
+        self._cancelled = False
+
+    def run(self) -> None:
+        from ..model_store import download_model
+
+        try:
+            downloaded, skipped = download_model(
+                self._model,
+                self._target,
+                source=self._source,
+                on_progress=lambda name, done, total: self.progress.emit(name, done, total),
+                should_cancel=lambda: self._cancelled,
+            )
+            self.done.emit(len(downloaded), len(skipped))
+        except VidarError as exc:
+            self.failed.emit(exc.message, exc.hint)
+        except Exception as exc:  # noqa: BLE001 - 兜底
+            self.failed.emit(f"未预期错误：{exc}", "")
+
+    def cancel(self) -> None:
+        self._cancelled = True
+
+
 class MainWindow(QMainWindow):
     def __init__(self, settings: Settings) -> None:
         super().__init__()
         self.settings = settings
+        self.theme_name = theme.resolve_theme(settings.ui.theme)
         self.worker: PipelineWorker | None = None
+        self.model_worker: ModelDownloadWorker | None = None
         self.last_key: str | None = None
+        self._model_progress_state: tuple[float, int] | None = None
 
         self.setWindowTitle("VIDAR — B站视频知识提取")
-        self.resize(1100, 720)
+        self.resize(1180, 760)
+        self.setMinimumSize(980, 640)
 
         self._emitter = _Emitter()
         self._emitter.line.connect(self._append_log)
         logging.getLogger("vidar").addHandler(_QtLogHandler(self._emitter))
 
-        root = QWidget()
-        self.setCentralWidget(root)
-        layout = QVBoxLayout(root)
+        self._build_ui()
+        self._apply_theme()
+        self._render_steps({})
+        self.refresh_history()
+        self.refresh_models()
+        self._append_log("就绪：粘贴链接 → 开始。首次跑某条视频会自动解析并下载音频。")
 
-        # ---- 顶部：输入 + 控制 ----
-        top = QHBoxLayout()
+    # ------------------------------------------------------------------ #
+    # 界面搭建
+    # ------------------------------------------------------------------ #
+    def _build_ui(self) -> None:
+        root = QWidget()
+        root.setObjectName("Root")
+        self.setCentralWidget(root)
+        layout = QHBoxLayout(root)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        self.pages = QStackedWidget()
+        layout.addWidget(self._build_sidebar())
+        self.pages.addWidget(self._build_task_page())
+        self.pages.addWidget(self._build_history_page())
+        self.pages.addWidget(self._build_models_page())
+        self.pages.addWidget(self._build_about_page())
+        layout.addWidget(self.pages, 1)
+
+    def _build_sidebar(self) -> QWidget:
+        side = QFrame()
+        side.setObjectName("Sidebar")
+        side.setFixedWidth(216)
+        layout = QVBoxLayout(side)
+        layout.setContentsMargins(14, 18, 14, 14)
+        layout.setSpacing(12)
+
+        logo_row = QHBoxLayout()
+        self.logo_label = QLabel()
+        self.logo_label.setFixedSize(38, 38)
+        logo_row.addWidget(self.logo_label)
+        logo_text = QVBoxLayout()
+        logo_text.setSpacing(0)
+        title = QLabel("VIDAR")
+        title.setObjectName("LogoTitle")
+        subtitle = QLabel("B站视频 → 知识文档")
+        subtitle.setObjectName("LogoSub")
+        logo_text.addWidget(title)
+        logo_text.addWidget(subtitle)
+        logo_row.addLayout(logo_text, 1)
+        layout.addLayout(logo_row)
+
+        self.nav = QListWidget()
+        self.nav.setObjectName("NavList")
+        self.nav.setIconSize(QSize(18, 18))
+        self.nav.setFocusPolicy(Qt.NoFocus)
+        for _key, text, _icon_name in _NAV_ITEMS:
+            self.nav.addItem(QListWidgetItem(text))
+        self.nav.setCurrentRow(0)
+        self.nav.currentRowChanged.connect(self.pages.setCurrentIndex)
+        layout.addWidget(self.nav, 1)
+
+        self.settings_btn = QPushButton("设置")
+        self.settings_btn.setObjectName("Ghost")
+        self.settings_btn.setIconSize(QSize(16, 16))
+        self.settings_btn.clicked.connect(self._open_settings)
+        layout.addWidget(self.settings_btn)
+
+        self.theme_btn = QPushButton("深色模式")
+        self.theme_btn.setObjectName("Ghost")
+        self.theme_btn.setIconSize(QSize(16, 16))
+        self.theme_btn.clicked.connect(self._toggle_theme)
+        layout.addWidget(self.theme_btn)
+
+        version_label = QLabel(f"v{__version__} · 本地识别 + 大模型整理")
+        version_label.setObjectName("VersionLabel")
+        version_label.setWordWrap(True)
+        layout.addWidget(version_label)
+        return side
+
+    def _page_header(self, title: str, subtitle: str) -> QVBoxLayout:
+        box = QVBoxLayout()
+        box.setSpacing(2)
+        head = QLabel(title)
+        head.setObjectName("PageTitle")
+        sub = QLabel(subtitle)
+        sub.setObjectName("PageSub")
+        sub.setWordWrap(True)
+        box.addWidget(head)
+        box.addWidget(sub)
+        return box
+
+    # ---- 任务页 ----
+    def _build_task_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(24, 20, 24, 20)
+        layout.setSpacing(14)
+        layout.addLayout(
+            self._page_header("任务", "粘贴一条 B 站链接，自动产出 Markdown / PDF / EPUB 全套文档")
+        )
+
+        input_card, input_layout = _card()
+        row = QHBoxLayout()
         self.url_edit = QLineEdit()
         self.url_edit.setPlaceholderText("粘贴 BV 号或视频链接，例如 BV1xx411c7mD")
         self.url_edit.returnPressed.connect(self._start)
@@ -147,81 +301,301 @@ class MainWindow(QMainWindow):
         for name in STEP_ORDER:
             self.from_combo.addItem(f"从 {name} 重跑", name)
         self.start_btn = QPushButton("开始")
+        self.start_btn.setObjectName("Primary")
+        self.start_btn.setIconSize(QSize(16, 16))
         self.cancel_btn = QPushButton("取消")
+        self.cancel_btn.setObjectName("Danger")
+        self.cancel_btn.setIconSize(QSize(16, 16))
         self.cancel_btn.setEnabled(False)
-        top.addWidget(self.url_edit, 1)
-        top.addWidget(self.from_combo)
-        top.addWidget(self.start_btn)
-        top.addWidget(self.cancel_btn)
-        layout.addLayout(top)
+        row.addWidget(self.url_edit, 1)
+        row.addWidget(self.from_combo)
+        row.addWidget(self.start_btn)
+        row.addWidget(self.cancel_btn)
+        input_layout.addLayout(row)
 
-        # ---- 进度条 ----
+        actions = QHBoxLayout()
+        self.open_out_btn = QPushButton("打开输出目录")
+        self.open_notes_btn = QPushButton("打开文稿")
+        self.preview_btn = QPushButton("预览排版…")
+        for button in (self.open_out_btn, self.open_notes_btn, self.preview_btn):
+            button.setIconSize(QSize(16, 16))
+        actions.addWidget(self.open_out_btn)
+        actions.addWidget(self.open_notes_btn)
+        actions.addWidget(self.preview_btn)
+        actions.addStretch(1)
+        input_layout.addLayout(actions)
+        layout.addWidget(input_card)
+
+        progress_card, progress_layout = _card()
         progress_row = QHBoxLayout()
         self.progress = QProgressBar()
         self.progress.setRange(0, 1000)
         self.progress.setValue(0)
         self.status_label = QLabel("就绪")
+        self.status_label.setObjectName("Muted")
         progress_row.addWidget(self.progress, 1)
         progress_row.addWidget(self.status_label)
-        layout.addLayout(progress_row)
+        progress_layout.addLayout(progress_row)
 
-        # ---- 中部：左（步骤 + 历史）右（日志） ----
-        splitter = QSplitter(Qt.Horizontal)
-
-        left = QWidget()
-        left_layout = QVBoxLayout(left)
-        left_layout.addWidget(QLabel("步骤进度"))
         self.steps_table = QTableWidget(0, 3)
         self.steps_table.setHorizontalHeaderLabels(["步骤", "内容", "状态"])
         self.steps_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         self.steps_table.verticalHeader().setVisible(False)
         self.steps_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.steps_table.setSelectionMode(QTableWidget.NoSelection)
-        left_layout.addWidget(self.steps_table)
-        left_layout.addWidget(QLabel("历史任务（双击载入并定位到未完成步骤）"))
-        self.history = QListWidget()
-        self.history.itemDoubleClicked.connect(self._load_history_item)
-        left_layout.addWidget(self.history)
-        splitter.addWidget(left)
+        self.steps_table.setShowGrid(False)
+        self.steps_table.setFixedHeight(212)
+        progress_layout.addWidget(self.steps_table)
+        layout.addWidget(progress_card)
 
-        right = QWidget()
-        right_layout = QVBoxLayout(right)
-        right_layout.addWidget(QLabel("运行日志"))
+        log_card, log_layout = _card()
+        log_title = QLabel("运行日志")
+        log_title.setObjectName("CardTitle")
+        log_layout.addWidget(log_title)
         self.log_view = QPlainTextEdit()
+        self.log_view.setObjectName("LogView")
         self.log_view.setReadOnly(True)
         self.log_view.setMaximumBlockCount(5000)
-        right_layout.addWidget(self.log_view)
-        splitter.addWidget(right)
-        splitter.setSizes([440, 640])
-        layout.addWidget(splitter, 1)
+        log_layout.addWidget(self.log_view, 1)
+        layout.addWidget(log_card, 1)
 
-        # ---- 底部按钮 ----
-        bottom = QHBoxLayout()
-        self.open_out_btn = QPushButton("打开输出目录")
-        self.open_notes_btn = QPushButton("打开文稿")
-        self.preview_btn = QPushButton("预览排版…")
-        self.settings_btn = QPushButton("设置")
-        self.refresh_btn = QPushButton("刷新历史")
-        bottom.addWidget(self.open_out_btn)
-        bottom.addWidget(self.open_notes_btn)
-        bottom.addWidget(self.preview_btn)
-        bottom.addStretch(1)
-        bottom.addWidget(self.refresh_btn)
-        bottom.addWidget(self.settings_btn)
-        layout.addLayout(bottom)
-
-        # ---- 信号 ----
         self.start_btn.clicked.connect(self._start)
         self.cancel_btn.clicked.connect(self._cancel)
-        self.settings_btn.clicked.connect(self._open_settings)
-        self.refresh_btn.clicked.connect(self.refresh_history)
         self.open_out_btn.clicked.connect(lambda: self._open_result(notes=False))
         self.open_notes_btn.clicked.connect(lambda: self._open_result(notes=True))
         self.preview_btn.clicked.connect(self._open_preview)
+        return page
 
-        self._render_steps({})
-        self.refresh_history()
-        self._append_log("就绪：粘贴链接 → 开始。首次跑某条视频会自动解析并下载音频。")
+    # ---- 历史页 ----
+    def _build_history_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(24, 20, 24, 20)
+        layout.setSpacing(14)
+        layout.addLayout(
+            self._page_header(
+                "历史", "双击任务可载入并定位到未完成步骤；已完成的任务重跑会自动跳过"
+            )
+        )
+
+        card, card_layout = _card()
+        self.history = QListWidget()
+        self.history.itemDoubleClicked.connect(self._load_history_item)
+        card_layout.addWidget(self.history, 1)
+
+        row = QHBoxLayout()
+        self.history_load_btn = QPushButton("载入并续跑")
+        self.history_open_out_btn = QPushButton("打开输出目录")
+        self.history_open_notes_btn = QPushButton("打开文稿")
+        self.history_preview_btn = QPushButton("预览排版…")
+        self.history_refresh_btn = QPushButton("刷新")
+        for button in (
+            self.history_load_btn,
+            self.history_open_out_btn,
+            self.history_open_notes_btn,
+            self.history_preview_btn,
+            self.history_refresh_btn,
+        ):
+            button.setIconSize(QSize(16, 16))
+            row.addWidget(button)
+        row.addStretch(1)
+        card_layout.addLayout(row)
+        layout.addWidget(card, 1)
+
+        self.history_load_btn.clicked.connect(self._load_selected_history)
+        self.history_open_out_btn.clicked.connect(lambda: self._open_result(notes=False))
+        self.history_open_notes_btn.clicked.connect(lambda: self._open_result(notes=True))
+        self.history_preview_btn.clicked.connect(self._open_preview)
+        self.history_refresh_btn.clicked.connect(self.refresh_history)
+        return page
+
+    # ---- 模型页 ----
+    def _build_models_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(24, 20, 24, 20)
+        layout.setSpacing(14)
+        layout.addLayout(
+            self._page_header(
+                "模型", "语音识别模型：按显存推荐档位，分片并行下载、断点续传、大小校验"
+            )
+        )
+
+        self.model_banner = QLabel("正在检测显卡…")
+        self.model_banner.setObjectName("Banner")
+        self.model_banner.setWordWrap(True)
+        self.model_banner.setContentsMargins(12, 10, 12, 10)
+        layout.addWidget(self.model_banner)
+
+        card, card_layout = _card()
+        self.model_table = QTableWidget(0, 5)
+        self.model_table.setHorizontalHeaderLabels(["型号", "大小", "显存建议", "状态", "说明"])
+        header = self.model_table.horizontalHeader()
+        header.setSectionResizeMode(4, QHeaderView.Stretch)
+        self.model_table.verticalHeader().setVisible(False)
+        self.model_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.model_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.model_table.setSelectionMode(QTableWidget.SingleSelection)
+        self.model_table.setShowGrid(False)
+        self.model_table.setFixedHeight(190)
+        card_layout.addWidget(self.model_table)
+
+        row = QHBoxLayout()
+        self.model_download_btn = QPushButton("下载所选")
+        self.model_download_btn.setObjectName("Primary")
+        self.model_cancel_btn = QPushButton("取消")
+        self.model_cancel_btn.setObjectName("Danger")
+        self.model_check_btn = QPushButton("校验所选")
+        self.model_refresh_btn = QPushButton("刷新")
+        for button in (
+            self.model_download_btn,
+            self.model_cancel_btn,
+            self.model_check_btn,
+            self.model_refresh_btn,
+        ):
+            button.setIconSize(QSize(16, 16))
+            row.addWidget(button)
+        row.addStretch(1)
+        card_layout.addLayout(row)
+
+        self.model_progress = QProgressBar()
+        self.model_progress.setRange(0, 1000)
+        self.model_progress.setValue(0)
+        self.model_status = QLabel("未开始")
+        self.model_status.setObjectName("Muted")
+        status_row = QHBoxLayout()
+        status_row.addWidget(self.model_progress, 1)
+        status_row.addWidget(self.model_status)
+        card_layout.addLayout(status_row)
+        layout.addWidget(card)
+        layout.addStretch(1)
+
+        self.model_download_btn.clicked.connect(self._download_selected_model)
+        self.model_cancel_btn.clicked.connect(self._cancel_model_download)
+        self.model_check_btn.clicked.connect(self._check_selected_model)
+        self.model_refresh_btn.clicked.connect(self.refresh_models)
+        return page
+
+    # ---- 关于页 ----
+    def _build_about_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(24, 20, 24, 20)
+        layout.setSpacing(14)
+        layout.addLayout(self._page_header("关于", "把 B 站视频变成可读、可检索、可打印的知识文档"))
+
+        card, card_layout = _card()
+        head = QHBoxLayout()
+        self.about_icon = QLabel()
+        self.about_icon.setFixedSize(72, 72)
+        head.addWidget(self.about_icon)
+        text_box = QVBoxLayout()
+        name = QLabel(f"VIDAR v{__version__}")
+        name.setObjectName("PageTitle")
+        tagline = QLabel(
+            "本地语音识别（faster-whisper）+ 大模型精修/摘要/翻译，"
+            "一键产出 Markdown / PDF / Word / EPUB"
+        )
+        tagline.setWordWrap(True)
+        tagline.setObjectName("PageSub")
+        text_box.addWidget(name)
+        text_box.addWidget(tagline)
+        head.addLayout(text_box, 1)
+        card_layout.addLayout(head)
+
+        steps_title = QLabel("快速上手")
+        steps_title.setObjectName("CardTitle")
+        card_layout.addWidget(steps_title)
+        for line in (
+            "1. 配置 LLM：设置 → 填 API Base / Key（或命令行 vidar llm setup <预设> --write）",
+            "2. 下载模型：本页选档位下载（推荐 large-v3；N 卡首次使用可在设置中确认 device=auto）",
+            "3. 任务页粘贴链接 → 开始；完成后在历史页打开文稿 / 预览排版 / 导入微信读书",
+        ):
+            label = QLabel(line)
+            label.setWordWrap(True)
+            label.setObjectName("Muted")
+            card_layout.addWidget(label)
+        layout.addWidget(card)
+
+        links_card, links_layout = _card()
+        links_title = QLabel("资源")
+        links_title.setObjectName("CardTitle")
+        links_layout.addWidget(links_title)
+        row = QHBoxLayout()
+        homepage_btn = QPushButton("项目主页")
+        config_btn = QPushButton("打开配置文件")
+        logs_btn = QPushButton("打开日志目录")
+        output_btn = QPushButton("打开输出目录")
+        for button in (homepage_btn, config_btn, logs_btn, output_btn):
+            button.setIconSize(QSize(16, 16))
+            row.addWidget(button)
+        row.addStretch(1)
+        links_layout.addLayout(row)
+        layout.addWidget(links_card)
+        layout.addStretch(1)
+
+        homepage_btn.clicked.connect(
+            lambda: webbrowser.open("https://github.com/GinyvaXu/VIDAR")
+        )
+        config_btn.clicked.connect(self._open_config_file)
+        logs_btn.clicked.connect(self._open_logs_dir)
+        output_btn.clicked.connect(lambda: self._open_result(notes=False))
+        return page
+
+    # ------------------------------------------------------------------ #
+    # 主题
+    # ------------------------------------------------------------------ #
+    def _apply_theme(self) -> None:
+        app = QApplication.instance()
+        if app is not None:
+            app.setStyleSheet(theme.build_qss(self.theme_name))
+        colors = theme.palette(self.theme_name)
+        for index, (_key, _text, icon_name) in enumerate(_NAV_ITEMS):
+            item = self.nav.item(index)
+            if item is not None:
+                item.setIcon(theme.icon(icon_name, colors["text_muted"], size=18))
+        self.theme_btn.setText(
+            "深色模式" if self.theme_name == "light" else "浅色模式"
+        )
+        self.theme_btn.setIcon(
+            theme.icon(
+                "moon" if self.theme_name == "light" else "sun",
+                colors["text_muted"],
+                size=16,
+            )
+        )
+        self.settings_btn.setIcon(theme.icon("settings", colors["text_muted"], size=16))
+        self.start_btn.setIcon(theme.icon("rocket", "#FFFFFF", size=16))
+        self.cancel_btn.setIcon(theme.icon("square", colors["text"], size=16))
+        self.open_out_btn.setIcon(theme.icon("folder-open", colors["text"], size=16))
+        self.open_notes_btn.setIcon(theme.icon("file-text", colors["text"], size=16))
+        self.preview_btn.setIcon(theme.icon("eye", colors["text"], size=16))
+        self.history_load_btn.setIcon(theme.icon("play", colors["text"], size=16))
+        self.history_open_out_btn.setIcon(theme.icon("folder-open", colors["text"], size=16))
+        self.history_open_notes_btn.setIcon(theme.icon("file-text", colors["text"], size=16))
+        self.history_preview_btn.setIcon(theme.icon("eye", colors["text"], size=16))
+        self.history_refresh_btn.setIcon(theme.icon("refresh-cw", colors["text"], size=16))
+        self.model_download_btn.setIcon(theme.icon("download", "#FFFFFF", size=16))
+        self.model_cancel_btn.setIcon(theme.icon("x", colors["text"], size=16))
+        self.model_check_btn.setIcon(theme.icon("gauge", colors["text"], size=16))
+        self.model_refresh_btn.setIcon(theme.icon("refresh-cw", colors["text"], size=16))
+        self.logo_label.setPixmap(theme.app_icon().pixmap(38, 38))
+        self.about_icon.setPixmap(theme.app_icon().pixmap(72, 72))
+
+    def _toggle_theme(self) -> None:
+        self.theme_name = "dark" if self.theme_name == "light" else "light"
+        self._apply_theme()
+        try:
+            data = deep_merge(
+                export_settings_dict(self.settings), {"ui": {"theme": self.theme_name}}
+            )
+            new_settings = Settings.model_validate(data)
+            new_settings.config_path = self.settings.config_path
+            target = new_settings.config_path or default_config_path()
+            write_config_dict(target, export_settings_dict(new_settings))
+            self.settings = new_settings
+        except OSError:
+            self._append_log("主题偏好保存失败（不影响本次使用）")
 
     # ------------------------------------------------------------------ #
     # 任务控制
@@ -322,8 +696,7 @@ class MainWindow(QMainWindow):
             self.steps_table.insertRow(row)
             self.steps_table.setItem(row, 0, QTableWidgetItem(name))
             self.steps_table.setItem(row, 1, QTableWidgetItem(_STEP_TITLES.get(name, "")))
-            status_item = QTableWidgetItem(statuses.get(name, "等待"))
-            self.steps_table.setItem(row, 2, status_item)
+            self.steps_table.setItem(row, 2, QTableWidgetItem(statuses.get(name, "等待")))
 
     def _set_step_status(self, name: str, text: str) -> None:
         for row in range(self.steps_table.rowCount()):
@@ -341,7 +714,7 @@ class MainWindow(QMainWindow):
         if not work_root.exists():
             return
         folders = sorted(
-            (p for p in work_root.iterdir() if p.is_dir()),
+            (p for p in work_root.iterdir() if p.is_dir() and not p.name.startswith("_")),
             key=lambda p: p.stat().st_mtime,
             reverse=True,
         )
@@ -376,6 +749,13 @@ class MainWindow(QMainWindow):
             item.setData(Qt.UserRole, {"key": folder.name, "url": url or folder.name})
             self.history.addItem(item)
 
+    def _load_selected_history(self) -> None:
+        item = self.history.currentItem()
+        if item is None:
+            QMessageBox.information(self, "提示", "先在列表里选一条任务")
+            return
+        self._load_history_item(item)
+
     def _load_history_item(self, item: QListWidgetItem) -> None:
         data = item.data(Qt.UserRole) or {}
         self.url_edit.setText(str(data.get("url") or data.get("key") or ""))
@@ -387,6 +767,7 @@ class MainWindow(QMainWindow):
         else:
             self.from_combo.setCurrentIndex(0)
             self._append_log(f"已载入任务 {data.get('key')}（已完成，重跑将全部跳过）")
+        self.nav.setCurrentRow(0)
 
     def _first_unfinished_step(self, key: str) -> str | None:
         state_path = resolve_path(self.settings.paths.work_dir) / key / "state.json"
@@ -419,6 +800,15 @@ class MainWindow(QMainWindow):
                 pass
         return out_root if out_root.exists() else None
 
+    def _current_key(self) -> str:
+        key = self.last_key
+        if key:
+            return key
+        item = self.history.currentItem()
+        if item is not None:
+            return str((item.data(Qt.UserRole) or {}).get("key") or "")
+        return ""
+
     def _current_source(self) -> str:
         """预览/重渲染用的任务来源：最近任务 → 历史选中 → 输入框。"""
         if self.last_key:
@@ -435,17 +825,13 @@ class MainWindow(QMainWindow):
         source = self._current_source()
         if not source:
             QMessageBox.information(
-                self, "提示", "先跑一次任务，或在历史列表双击载入一条，再打开预览"
+                self, "提示", "先跑一次任务，或在历史列表选一条，再打开预览"
             )
             return
         PreviewDialog(self.settings, source, self).exec()
 
     def _open_result(self, *, notes: bool) -> None:
-        key = self.last_key
-        if not key:
-            item = self.history.currentItem()
-            if item is not None:
-                key = str((item.data(Qt.UserRole) or {}).get("key") or "")
+        key = self._current_key()
         if not key:
             QMessageBox.information(self, "提示", "还没有可打开的结果，先跑一次任务")
             return
@@ -461,6 +847,20 @@ class MainWindow(QMainWindow):
                     target = matches[0]
                     break
         _open_path(target)
+
+    def _open_config_file(self) -> None:
+        target = self.settings.config_path or default_config_path()
+        if not Path(target).exists():
+            QMessageBox.information(self, "提示", f"配置文件还不存在：{target}")
+            return
+        _open_path(Path(target))
+
+    def _open_logs_dir(self) -> None:
+        logs_dir = resolve_path(self.settings.paths.logs_dir)
+        if not logs_dir.exists():
+            QMessageBox.information(self, "提示", f"日志目录还不存在：{logs_dir}")
+            return
+        _open_path(logs_dir)
 
     def _open_settings(self) -> None:
         dialog = SettingsDialog(self.settings, self)
@@ -478,10 +878,137 @@ class MainWindow(QMainWindow):
         self.settings = new_settings
         self._append_log(f"配置已保存：{target}")
 
+    # ------------------------------------------------------------------ #
+    # 模型页
+    # ------------------------------------------------------------------ #
+    def refresh_models(self) -> None:
+        from ..asr import cuda_available
+        from ..model_store import (
+            catalog,
+            detect_vram_gb,
+            models_root,
+            recommend_model,
+            resolve_repo,
+        )
+
+        root = models_root()
+        self.model_table.setRowCount(0)
+        for spec in catalog():
+            folder = resolve_repo(spec.alias).split("/")[-1]
+            installed = (root / folder / "model.bin").exists()
+            row = self.model_table.rowCount()
+            self.model_table.insertRow(row)
+            self.model_table.setItem(row, 0, QTableWidgetItem(spec.alias))
+            self.model_table.setItem(row, 1, QTableWidgetItem(f"≈{spec.approx_mb / 1024:.1f} GB"))
+            self.model_table.setItem(row, 2, QTableWidgetItem(f"≥{spec.vram_gb:.0f} GB"))
+            self.model_table.setItem(row, 3, QTableWidgetItem("已安装 ✓" if installed else "—"))
+            self.model_table.setItem(row, 4, QTableWidgetItem(spec.note))
+        if self.model_table.currentRow() < 0:
+            self.model_table.selectRow(0)
+
+        vram = detect_vram_gb()
+        spec, reason = recommend_model(vram, has_cuda=cuda_available())
+        self.model_banner.setText(f"💡 {reason}　·　模型目录：{root}")
+
+    def _selected_model_alias(self) -> str:
+        row = self.model_table.currentRow()
+        if row < 0:
+            return ""
+        item = self.model_table.item(row, 0)
+        return item.text() if item is not None else ""
+
+    def _download_selected_model(self) -> None:
+        from ..model_store import default_model_dir, resolve_repo
+
+        alias = self._selected_model_alias()
+        if not alias:
+            QMessageBox.information(self, "提示", "先在表格里选一个模型")
+            return
+        if self.model_worker is not None and self.model_worker.isRunning():
+            QMessageBox.information(self, "提示", "已有下载在进行中")
+            return
+        target = default_model_dir(alias)
+        self.model_progress.setValue(0)
+        self.model_status.setText(f"准备下载 {resolve_repo(alias)} → {target}")
+        self.model_download_btn.setEnabled(False)
+        self.model_cancel_btn.setEnabled(True)
+        self._model_progress_state = None
+
+        self.model_worker = ModelDownloadWorker(alias, target)
+        self.model_worker.progress.connect(self._on_model_progress)
+        self.model_worker.done.connect(self._on_model_done)
+        self.model_worker.failed.connect(self._on_model_failed)
+        self.model_worker.finished.connect(self._on_model_finished)
+        self.model_worker.start()
+
+    def _cancel_model_download(self) -> None:
+        if self.model_worker is not None:
+            self.model_status.setText("正在取消…（分片已保留，可续传）")
+            self.model_cancel_btn.setEnabled(False)
+            self.model_worker.cancel()
+
+    def _check_selected_model(self) -> None:
+        from ..model_store import check_model, default_model_dir, resolve_repo
+
+        alias = self._selected_model_alias()
+        if not alias:
+            QMessageBox.information(self, "提示", "先在表格里选一个模型")
+            return
+        target = default_model_dir(alias)
+        if not target.exists():
+            self.model_status.setText(f"未安装：{target}（先点「下载所选」）")
+            return
+        results = check_model(alias, target)
+        ok_count = sum(1 for item in results if item.ok)
+        if ok_count == len(results):
+            self.model_status.setText(f"✓ 校验通过（{ok_count}/{len(results)} 个文件）：{target}")
+            return
+        bad = "、".join(item.name for item in results if not item.ok)
+        self.model_status.setText(f"✗ 校验未通过：{bad}（重新下载会自动修复）")
+        QMessageBox.warning(
+            self,
+            "模型校验",
+            f"{resolve_repo(alias)}\n\n缺失或损坏：{bad}\n\n"
+            "点「下载所选」重下（分片续传，自动跳过完整文件）。",
+        )
+
+    def _on_model_progress(self, name: str, done: int, total: int) -> None:
+        import time
+
+        if total > 0:
+            self.model_progress.setValue(int(1000 * min(1.0, done / total)))
+        now = time.monotonic()
+        if self._model_progress_state is not None:
+            last_time, last_done = self._model_progress_state
+            elapsed = now - last_time
+            if elapsed >= 0.5:
+                speed = (done - last_done) / elapsed / 1048576
+                self.model_status.setText(
+                    f"下载 {name}：{done / 1048576:.1f}/{total / 1048576:.1f} MB · {speed:.1f} MB/s"
+                )
+                self._model_progress_state = (now, done)
+        else:
+            self._model_progress_state = (now, done)
+
+    def _on_model_done(self, downloaded: int, skipped: int) -> None:
+        self.model_status.setText(
+            f"✓ 下载完成：新下载 {downloaded} 个文件，跳过已存在 {skipped} 个"
+        )
+        self.refresh_models()
+
+    def _on_model_failed(self, message: str, hint: str) -> None:
+        self.model_status.setText(f"✗ {message}")
+        QMessageBox.critical(self, "模型下载失败", message + (f"\n\n{hint}" if hint else ""))
+
+    def _on_model_finished(self) -> None:
+        self.model_download_btn.setEnabled(True)
+        self.model_cancel_btn.setEnabled(False)
+
 
 def run_gui(settings: Settings) -> None:
     app = QApplication.instance() or QApplication(sys.argv)
     app.setApplicationName("VIDAR")
+    app.setWindowIcon(theme.app_icon())
     setup_logging(resolve_path(settings.paths.logs_dir), quiet=True)
     window = MainWindow(settings)
     window.show()

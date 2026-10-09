@@ -81,6 +81,10 @@ class AsrSettings(BaseModel):
     hf_endpoint: str = "https://hf-mirror.com"  # HuggingFace 镜像；置空使用官方源
 
 
+class UiSettings(BaseModel):
+    theme: str = "auto"  # auto 跟随系统 | light 浅色 | dark 深色
+
+
 class TranslateSettings(BaseModel):
     """双语翻译：检测到非目标语言时，逐段翻译为对照译文。"""
 
@@ -142,6 +146,7 @@ class Settings(BaseModel):
     llm: LlmSettings = Field(default_factory=LlmSettings)
     translate: TranslateSettings = Field(default_factory=TranslateSettings)
     export: ExportSettings = Field(default_factory=ExportSettings)
+    ui: UiSettings = Field(default_factory=UiSettings)
 
     # 运行期附加信息
     config_path: Path | None = None
@@ -322,6 +327,9 @@ point_thumb_mm = 28           # 报刊「本期看点」缩略图宽度（mm）
 bilingual = true              # 有译文时双语排版（译文正文 + 原文小字）
 docx = false                  # 导出 Word（可再编辑）
 epub = false                  # 导出 EPUB 电子书（微信读书 / 墨水屏）
+
+[ui]
+theme = "auto"                # auto 跟随系统 | light 浅色 | dark 深色
 """
 
 

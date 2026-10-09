@@ -23,7 +23,8 @@ def test_resolve_repo_aliases() -> None:
 
 
 def test_default_model_dir(tmp_path: Path) -> None:
-    expected = tmp_path / "models" / "faster-whisper-large-v3"
+    # base 参数语义 = 模型根目录（models/ 本身）；默认用 models_root()
+    expected = tmp_path / "faster-whisper-large-v3"
     assert default_model_dir("large-v3", tmp_path) == expected
 
 

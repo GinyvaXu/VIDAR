@@ -61,7 +61,10 @@ hiddenimports = [
     "tokenizers",
     "PySide6.QtPdf",  # 排版预览（QtPdf 视图）
     "PySide6.QtPdfWidgets",
+    "PySide6.QtSvg",  # 图标渲染（QSvgRenderer）
 ]
+
+APP_ICON = os.path.join(PROJECT_ROOT, "src", "vidar", "assets", "app", "vidar.ico")
 
 excludes = ["tkinter", "matplotlib", "PyQt5", "PyQt6", "IPython"]
 
@@ -86,6 +89,7 @@ exe_gui = EXE(  # noqa: F821
     name="VIDAR",
     console=False,
     upx=False,
+    icon=APP_ICON if os.path.exists(APP_ICON) else None,
 )
 
 a_cli = Analysis(  # noqa: F821
@@ -106,6 +110,7 @@ exe_cli = EXE(  # noqa: F821
     name="VIDAR-CLI",
     console=True,
     upx=False,
+    icon=APP_ICON if os.path.exists(APP_ICON) else None,
 )
 
 coll = COLLECT(  # noqa: F821

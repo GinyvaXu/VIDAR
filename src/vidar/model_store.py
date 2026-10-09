@@ -142,9 +142,16 @@ def resolve_repo(model: str) -> str:
     return model
 
 
+def models_root() -> Path:
+    """模型根目录：便携包取 exe 同级 models/，源码运行取当前目录。"""
+    from .config import exe_dir
+
+    return (exe_dir() or Path.cwd()) / "models"
+
+
 def default_model_dir(model: str, base: Path | None = None) -> Path:
     name = resolve_repo(model).split("/")[-1]
-    return (base or Path.cwd()) / "models" / name
+    return (base or models_root()) / name
 
 
 def expected_sizes(repo: str, *, endpoint: str | None = None) -> dict[str, int] | None:
