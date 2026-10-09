@@ -39,6 +39,13 @@ VIDAR {{VERSION}} 便携版（Windows x64）
   手机端书架上自动出现；支持多端同步进度。
   重导命令：VIDAR-CLI.exe epub BV号（--mode brief 精简 / --open 直接打开）
 
+【双语翻译】（外语视频自动翻译，可对照阅读）
+  默认开启：语言自动检测 → 非中文视频逐段翻译为中文（1:1 对照）
+  VIDAR-CLI.exe run BV号 --target-lang en     目标语言换成英文（中文视频 → 英文版）
+  VIDAR-CLI.exe run BV号 --no-translate       关闭翻译
+  VIDAR-CLI.exe run BV号 --no-bilingual       只出译文（不附原文）
+  （译文出现在：精修稿版 / 字幕版 / 报刊版·论文版 PDF / Word版 / 电子书版）
+
 【排版调试】（不重跑流水线，改完秒出）
   VIDAR-CLI.exe pdf BV号 --scale compact      字号档位：compact 小 / standard 标准 / large 大
   VIDAR-CLI.exe pdf BV号 --point-figures sparse   要点截图密度：all 全部 / sparse 隔一取一 / off 关闭

@@ -106,6 +106,10 @@ def export_outputs(
     chapters: list[Chapter],
     summary: SummaryResult,
 ) -> dict[str, str]:
+    from .translate import load_translation
+
+    translation = load_translation(ctx)
+    bilingual = ctx.settings.export.bilingual and translation is not None
     published = meta.pubdate.strftime("%Y-%m-%d") if meta.pubdate else None
     out_dir = ctx.final_output_dir(meta.title, published)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -120,7 +124,10 @@ def export_outputs(
     notes_path.write_text(render_notes(meta, summary, asr_model=asr_label), encoding="utf-8")
     outline_path.write_text(render_outline(meta, summary), encoding="utf-8")
     raw_path.write_text(render_asr_transcript(asr), encoding="utf-8")
-    refined_path.write_text(render_refined_transcript(refine), encoding="utf-8")
+    refined_path.write_text(
+        render_refined_transcript(refine, translation=translation, bilingual=bilingual),
+        encoding="utf-8",
+    )
     meta_path.write_text(
         json.dumps(build_export_meta(meta, asr, refine, summary), ensure_ascii=False, indent=2),
         encoding="utf-8",
@@ -152,6 +159,7 @@ def export_outputs(
     if export_cfg.docx or export_cfg.pdf or export_cfg.epub:
         from .frames import load_frames
         from .pdf import DocData, render_docx, render_pdf
+        from .translate import load_translation
 
         doc_data = DocData(
             meta=meta,
@@ -165,6 +173,8 @@ def export_outputs(
             scale=export_cfg.pdf_scale,
             point_figures=export_cfg.point_figures,
             point_thumb_mm=export_cfg.point_thumb_mm,
+            translation=load_translation(ctx),
+            bilingual=export_cfg.bilingual,
         )
         if export_cfg.docx:
             docx_path = render_docx(doc_data, out_dir / output_filename("docx", meta.title))
@@ -196,7 +206,10 @@ def export_outputs(
 
     if ctx.settings.export.srt:
         srt_path = out_dir / output_filename("srt", meta.title)
-        srt_path.write_text(render_srt(refine, asr), encoding="utf-8")
+        srt_path.write_text(
+            render_srt(refine, asr, translation=translation, bilingual=bilingual),
+            encoding="utf-8",
+        )
         artifacts["srt"] = str(srt_path.resolve())
 
     removed = cleanup_media(ctx)

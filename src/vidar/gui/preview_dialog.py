@@ -101,6 +101,8 @@ class PreviewDialog(QDialog):
         self._select(self.points_combo, settings.export.point_figures)
         self.epub_check = QCheckBox("同时导出电子书（EPUB）")
         self.epub_check.setChecked(settings.export.epub)
+        self.bilingual_check = QCheckBox("双语对照")
+        self.bilingual_check.setChecked(settings.export.bilingual)
         self.render_btn = QPushButton("重新渲染")
         self.open_btn = QPushButton("用系统程序打开")
         self.open_btn.setEnabled(False)
@@ -110,6 +112,7 @@ class PreviewDialog(QDialog):
         top.addWidget(self.mode_combo)
         top.addWidget(self.scale_combo)
         top.addWidget(self.points_combo)
+        top.addWidget(self.bilingual_check)
         top.addWidget(self.epub_check)
         top.addStretch(1)
         top.addWidget(self.render_btn)
@@ -166,6 +169,7 @@ class PreviewDialog(QDialog):
             "mode": self.mode_combo.currentData(),
             "scale": self.scale_combo.currentData(),
             "point_figures": self.points_combo.currentData(),
+            "bilingual": self.bilingual_check.isChecked(),
             "epub": self.epub_check.isChecked(),
         }
         self._worker = RenderWorker(self._settings, self._source, options)

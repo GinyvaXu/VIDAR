@@ -61,6 +61,11 @@ class SettingsDialog(QDialog):
         self.docx.setChecked(settings.export.docx)
         self.epub = QCheckBox("导出 EPUB 电子书（微信读书 / 墨水屏）")
         self.epub.setChecked(settings.export.epub)
+        self.translate_enabled = QCheckBox("自动翻译外语视频（双语对照）")
+        self.translate_enabled.setChecked(settings.translate.enabled)
+        self.target_language = QLineEdit(settings.translate.target_language)
+        self.bilingual = QCheckBox("双语排版（译文正文 + 原文小字）")
+        self.bilingual.setChecked(settings.export.bilingual)
 
         form = QFormLayout()
         form.addRow("LLM API Base", self.api_base)
@@ -80,6 +85,9 @@ class SettingsDialog(QDialog):
         form.addRow("报刊要点截图密度", self.point_figures)
         form.addRow("", self.docx)
         form.addRow("", self.epub)
+        form.addRow("翻译目标语言（zh/en/ja…）", self.target_language)
+        form.addRow("", self.translate_enabled)
+        form.addRow("", self.bilingual)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
         buttons.button(QDialogButtonBox.Save).setText("保存")
@@ -113,6 +121,10 @@ class SettingsDialog(QDialog):
                 "output_dir": self.output_dir.text().strip() or "output",
                 "work_dir": self.work_dir.text().strip() or "work",
             },
+            "translate": {
+                "enabled": self.translate_enabled.isChecked(),
+                "target_language": self.target_language.text().strip() or "zh",
+            },
             "export": {
                 "keep_media": self.keep_media.isChecked(),
                 "screenshots": self.screenshots.isChecked(),
@@ -123,5 +135,6 @@ class SettingsDialog(QDialog):
                 "point_figures": self.point_figures.currentData(),
                 "docx": self.docx.isChecked(),
                 "epub": self.epub.isChecked(),
+                "bilingual": self.bilingual.isChecked(),
             },
         }

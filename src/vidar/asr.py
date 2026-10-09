@@ -227,9 +227,12 @@ def transcribe(ctx: RunContext, wav: Path) -> AsrResult:
         raise _wrap_gpu_error(exc) from exc
 
     ctx.emit("progress", step="asr", done=0, total=1, message="开始识别…")
+    language = (settings.language or "").strip().lower()
+    if language in ("", "auto", "detect", "none"):
+        language = None  # 自动检测（外语视频默认路径）
     segments_iter, info = model.transcribe(
         str(wav),
-        language=settings.language or None,
+        language=language,
         vad_filter=settings.vad,
         condition_on_previous_text=False,  # 防复读/幻觉
         word_timestamps=True,
@@ -264,10 +267,18 @@ def transcribe(ctx: RunContext, wav: Path) -> AsrResult:
     if dropped:
         ctx.log.info("过滤疑似幻听片段 %d 个", dropped)
 
+    detected = str(getattr(info, "language", "") or "")
+    if detected:
+        ctx.log.info(
+            "识别语言：%s（置信度 %.2f）",
+            detected,
+            getattr(info, "language_probability", 0.0),
+        )
+
     return AsrResult(
         engine="faster-whisper",
         model=model_reference,
-        language=settings.language or "auto",
+        language=detected or language or "auto",
         duration_sec=duration or None,
         segments=merge_segments(kept),
     )

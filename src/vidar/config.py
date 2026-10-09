@@ -73,12 +73,21 @@ class AsrSettings(BaseModel):
     model: str = "large-v3"
     device: str = "auto"  # auto | cuda | cpu
     compute_type: str = "auto"  # auto | float16 | int8_float16 | int8
-    language: str = "zh"
+    language: str = "auto"  # auto 自动检测 | zh | en | ja | ko …
     vad: bool = True
     beam_size: int = 5
     filter_hallucinations: bool = True
     initial_prompt: str = "以下是普通话视频转写，请输出简体中文，保留标点。"
     hf_endpoint: str = "https://hf-mirror.com"  # HuggingFace 镜像；置空使用官方源
+
+
+class TranslateSettings(BaseModel):
+    """双语翻译：检测到非目标语言时，逐段翻译为对照译文。"""
+
+    enabled: bool = True
+    target_language: str = "zh"  # 目标语言（zh 中文 | en 英文 | …）
+    max_chars: int = 2500  # 单次请求的源文本字符上限（含段号）
+    skip_languages: bool = True  # 源语言命中目标语言时自动跳过
 
 
 class LlmSettings(BaseModel):
@@ -87,6 +96,7 @@ class LlmSettings(BaseModel):
     model: str = "deepseek-chat"
     refine_model: str = ""
     summary_model: str = ""
+    translate_model: str = ""
     temperature: float = 0.2
     timeout_sec: int = 120
     max_retries: int = 3
@@ -97,11 +107,13 @@ class LlmSettings(BaseModel):
         return bool(self.api_key and self.api_base)
 
     def model_for(self, step: str) -> str:
-        """按步骤取模型：refine_model / summary_model 覆盖默认 model。"""
+        """按步骤取模型：refine_model / summary_model / translate_model 覆盖默认 model。"""
         if step == "refine" and self.refine_model:
             return self.refine_model
         if step == "summary" and self.summary_model:
             return self.summary_model
+        if step == "translate" and self.translate_model:
+            return self.translate_model
         return self.model
 
 
@@ -119,6 +131,7 @@ class ExportSettings(BaseModel):
     pdf_scale: str = "standard"  # 字号档位：compact 小 | standard 标准 | large 大（或数字 0.6–1.5）
     point_figures: str = "all"  # 报刊要点截图密度：all | sparse 隔一取一 | off
     point_thumb_mm: float = 28.0  # 报刊「本期看点」缩略图宽度（mm）
+    bilingual: bool = True  # 有译文时双语排版（译文正文 + 原文小字）
     docx: bool = False  # 导出 Word（可选）
     epub: bool = False  # 导出 EPUB 电子书（微信读书 / 墨水屏）
 
@@ -127,6 +140,7 @@ class Settings(BaseModel):
     paths: PathsSettings = Field(default_factory=PathsSettings)
     asr: AsrSettings = Field(default_factory=AsrSettings)
     llm: LlmSettings = Field(default_factory=LlmSettings)
+    translate: TranslateSettings = Field(default_factory=TranslateSettings)
     export: ExportSettings = Field(default_factory=ExportSettings)
 
     # 运行期附加信息
@@ -269,7 +283,7 @@ engine = "faster-whisper"
 model = "large-v3"          # large-v3 | large-v3-turbo | medium | small
 device = "auto"             # auto | cuda | cpu
 compute_type = "auto"       # auto | float16 | int8_float16 | int8
-language = "zh"
+language = "auto"           # auto 自动检测 | zh | en | ja | ko …（外语视频保持 auto）
 vad = true
 beam_size = 5
 filter_hallucinations = true
@@ -286,6 +300,11 @@ timeout_sec = 120
 max_retries = 3
 chunk_chars = 3500
 
+[translate]
+enabled = true              # 检测到非目标语言时自动翻译（源语言=目标语言时跳过）
+target_language = "zh"      # 目标语言：zh 中文 | en 英文 | ja 日文 …
+max_chars = 2500            # 单次翻译请求的源文本字符上限
+
 [export]
 srt = false
 keep_media = false
@@ -300,6 +319,7 @@ pdf_mode = "full"             # full 全文 | brief 精简
 pdf_scale = "standard"        # 字号档位：compact 小 | standard 标准 | large 大（或 0.6–1.5 数字）
 point_figures = "all"         # 报刊要点截图密度：all 全部 | sparse 隔一取一 | off 关闭
 point_thumb_mm = 28           # 报刊「本期看点」缩略图宽度（mm）
+bilingual = true              # 有译文时双语排版（译文正文 + 原文小字）
 docx = false                  # 导出 Word（可再编辑）
 epub = false                  # 导出 EPUB 电子书（微信读书 / 墨水屏）
 """

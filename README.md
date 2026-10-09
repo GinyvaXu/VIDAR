@@ -38,6 +38,8 @@ BV链接 → 解析视频信息 → 下载（仅音频） → 语音识别（ASR
 - ✂️ **段级精修**：LLM 纠正错别字、去口水词、统一术语；段号与时间戳 1:1 保留，**原文 + 精修双版本可追溯**
 - 🧠 **结构化总结**：map-reduce 生成「一句话结论 + 核心要点 + 章节小结」，要点可点击跳回 B 站对应时间
 - 📝 **知识库导出**：`笔记版-标题.md`（带 frontmatter，兼容 Obsidian）/ 大纲 / 逐字稿 / 元数据，**所有文件按「<变体>版-视频标题」命名**，独立文件名一目了然
+- 🌍 **双语翻译**：外语视频自动检测语言并逐段翻译（缺段自动重试、原样对照）；精修稿 / SRT / PDF / EPUB / Word
+  均支持「双语」或「只看译文」，中文视频自动跳过
 - 📸 **截图配图**：章节配图（LLM 判断时刻）+ **每个要点的画面截图**（报刊「本期看点」左图右文），720p 抽帧、自动去重
 - 📄 **打印级导出**：报刊风 / 论文风 PDF（A4 双栏报头或封面摘要目录）+ Word；**字号档位**（紧凑小字一页更多 / 标准 / 大）与**要点截图密度**（全部 / 隔一取一 / 关闭）随时可调
 - 📚 **电子书导出（EPUB）**：封面 + 书名页 + 目录 + 导读要点 + 章节配图 + 全文，重排排版、随阅读器字号；可直接导入**微信读书**或电子墨水阅读器（书内结构全 ASCII，规避图片不显示坑）
@@ -169,6 +171,8 @@ model = "deepseek-v4.1-flash"
 | `vidar run <BV> --pdf` | 追加导出 PDF（`--pdf-style newspaper\|paper`、`--pdf-mode full\|brief`、`--pdf-scale compact\|standard\|large`） |
 | `vidar run <BV> --docx` | 追加导出 Word（.docx，可再编辑） |
 | `vidar run <BV> --epub` | 追加导出 EPUB 电子书（微信读书 / 墨水屏） |
+| `vidar run <BV> --target-lang en` | 翻译目标语言（默认 zh；中文视频自动跳过） |
+| `vidar run <BV> --no-bilingual` | 只出译文（默认双语：译文正文 + 原文小字） |
 | `vidar run <BV> --no-screenshots` | 关闭关键帧截图（默认开启，供 Word/PDF 配图） |
 | `vidar pdf <BV>` | **单独重渲染 PDF**（`--style` / `--mode` / `--scale` / `--point-figures` / `--open`），不重跑流水线，适合反复调试排版 |
 | `vidar epub <BV>` | **单独重导出 EPUB**（`--mode full\|brief` / `--open`），不重跑流水线 |

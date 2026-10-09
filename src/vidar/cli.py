@@ -99,6 +99,15 @@ def run(
     screenshots: bool = typer.Option(
         True, "--screenshots/--no-screenshots", help="关键帧截图（供 docx/pdf 配图）"
     ),
+    translate: bool = typer.Option(
+        True, "--translate/--no-translate", help="外语视频自动双语翻译"
+    ),
+    target_lang: str | None = typer.Option(
+        None, "--target-lang", help="翻译目标语言：zh 中文 | en 英文 | ja 日文 …"
+    ),
+    bilingual: bool = typer.Option(
+        True, "--bilingual/--no-bilingual", help="双语排版（译文正文 + 原文小字）"
+    ),
     from_step: str | None = typer.Option(None, "--from", help="从指定步骤开始（重置该步及后续）"),
     to_step: str | None = typer.Option(None, "--to", help="执行到指定步骤为止"),
     dry_run: bool = typer.Option(False, "--dry-run", help="只展示执行计划，不实际执行"),
@@ -134,6 +143,12 @@ def run(
         overrides.setdefault("export", {})["point_figures"] = point_figures
     if not screenshots:
         overrides.setdefault("export", {})["screenshots"] = False
+    if not translate:
+        overrides.setdefault("translate", {})["enabled"] = False
+    if target_lang:
+        overrides.setdefault("translate", {})["target_language"] = target_lang
+    if not bilingual:
+        overrides.setdefault("export", {})["bilingual"] = False
 
     try:
         settings = _load(config, overrides)
@@ -155,7 +170,13 @@ def run(
             f"[bold]配置文件[/bold] {settings.config_path or '（全部默认值）'}\n"
             f"[bold]ASR[/bold]　　 {settings.asr.engine} / "
             f"{settings.asr.model} / {settings.asr.device}\n"
-            f"[bold]LLM[/bold]　　 {llm_text}",
+            f"[bold]LLM[/bold]　　 {llm_text}\n"
+            f"[bold]翻译[/bold]　　"
+            + (
+                f"开启（→ {settings.translate.target_language}）"
+                if settings.translate.enabled
+                else "关闭"
+            ),
             title="VIDAR",
             border_style="cyan",
         )
@@ -207,6 +228,9 @@ def pdf(
         None, "--point-figures", help="要点截图：all 全部 | sparse 隔一取一 | off 关闭"
     ),
     thumb_mm: float | None = typer.Option(None, "--thumb-mm", help="要点缩略图宽度（mm，默认 28）"),
+    bilingual: bool | None = typer.Option(
+        None, "--bilingual/--no-bilingual", help="双语排版（默认跟随配置 export.bilingual）"
+    ),
     docx: bool = typer.Option(False, "--docx", help="同时重导 Word"),
     open_file: bool = typer.Option(False, "--open", help="完成后用系统默认程序打开 PDF"),
 ) -> None:
@@ -225,6 +249,7 @@ def pdf(
             point_figures=point_figures,
             point_thumb_mm=thumb_mm,
             docx=docx,
+            bilingual=bilingual,
         )
     except VidarError as exc:
         _fail(exc)
@@ -244,6 +269,9 @@ def epub(
     source: str = typer.Argument(..., help="BV 号或视频 URL（需已完整跑过一次）"),
     config: Path | None = typer.Option(None, "--config", help="指定配置文件路径"),
     mode: str | None = typer.Option(None, "--mode", help="full 全文 | brief 精简"),
+    bilingual: bool | None = typer.Option(
+        None, "--bilingual/--no-bilingual", help="双语排版（默认跟随配置 export.bilingual）"
+    ),
     open_file: bool = typer.Option(False, "--open", help="完成后打开 EPUB"),
 ) -> None:
     """单独重导出 EPUB 电子书（微信读书 / 电子墨水阅读器），不重跑流水线。"""
@@ -252,7 +280,7 @@ def epub(
     try:
         settings = _load(config)
         _setup_logs(settings, quiet=True)
-        artifacts = rerender_task(settings, source, mode=mode, epub=True)
+        artifacts = rerender_task(settings, source, mode=mode, epub=True, bilingual=bilingual)
     except VidarError as exc:
         _fail(exc)
         return

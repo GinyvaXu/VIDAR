@@ -52,6 +52,8 @@ class _FakeLlmClient:
 def _make_context(monkeypatch, tmp_path: Path) -> RunContext:  # noqa: ANN001
     monkeypatch.chdir(tmp_path)
     settings = Settings()
+    # 本测试只验证 M2 链路（refine→…→export）：关闭截图，避免依赖真实网络下载视频
+    settings.export.screenshots = False
     ctx = RunContext(settings, "BV1xx411c7mD")
     meta = VideoMeta(
         bvid="BV1xx411c7mD",

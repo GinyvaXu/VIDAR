@@ -29,6 +29,7 @@ p { margin: 0 0 0.6em; text-indent: 2em; }
 p.meta, p.lead, p.center, figcaption, li { text-indent: 0; }
 p.meta { color: #666; font-size: 0.85em; }
 p.lead { color: #444; }
+p.src { font-size: 0.88em; color: #555; }
 ol.points { padding-left: 1.4em; margin: 0.4em 0 0.8em; }
 ol.points li { margin-bottom: 0.55em; }
 ol.toc-list { list-style: none; padding-left: 0.4em; margin: 0.3em 0; }
@@ -164,8 +165,10 @@ def _chapter_page(data: DocData, chapter, figure_number: int) -> tuple[str, int]
         body.append(_figure_html(figure_number, caption, start, path))
         figure_number += 1
     if data.mode == "full":
-        for _start, text in data.chapter_paragraphs(chapter):
+        for _start, text, source in data.chapter_paragraphs(chapter):
             body.append(f"<p>{xml_escape(text)}</p>")
+            if source:
+                body.append(f'<p class="src">{xml_escape(source)}</p>')
     return _page(chapter.title, "\n".join(body)), figure_number
 
 

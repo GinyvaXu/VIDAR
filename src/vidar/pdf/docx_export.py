@@ -143,10 +143,12 @@ def build_docx(data: DocData, output_path: Path) -> Path:
             figure_number += 1
 
         if data.mode == "full":
-            for seg_start, text in data.chapter_paragraphs(chapter):
+            for seg_start, text, source in data.chapter_paragraphs(chapter):
                 paragraph = document.add_paragraph()
                 _run(paragraph, text)
                 _run(paragraph, f"　[{format_clock(seg_start)}]", size=8, color=GRAY)
+                if source:
+                    _body(document, source, size=9, gray=True, indent=0.5)
 
     trailer = document.add_paragraph()
     _run(

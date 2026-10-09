@@ -69,6 +69,14 @@
 - **技术手段**：`vidar/rerender.py` 复用 PDF 渲染入口；PySide6 QtPdf（QPdfDocument + QPdfView）做内嵌预览，
   渲染放 QThread 防卡 UI；PyInstaller 打包时补充 QtPdf/QtPdfWidgets hiddenimports。
 
+### 双语翻译（translate 步骤）
+- **实现逻辑**：ASR 语言自动检测（`language = "auto"`）；源语言≠目标语言时逐段 1:1 翻译（`translate.json`，
+  含 source_text 快照），缺段追加一次重试、异常段落回退显示原文；章节切分与摘要基于译文进行，
+  保证文档语言与目标语言一致；源语言即目标语言（如中文视频）时整步跳过并清理陈旧产物。
+- **技术手段**：`vidar/translate.py`；按 `translate.max_chars` 分块请求，解析容忍 idx/index 与 text/translation
+  等键名变体；`apply_translation` 以 `model_copy` 生成加工用精修稿（时间戳/段号不变）；
+  渲染层（MD/SRT/PDF/EPUB/Word）依据 `DocData.translation` 输出「双语对照」或「只看译文」。
+
 ### EPUB 电子书导出（微信读书 / 墨水屏）
 - **实现逻辑**：`render_epub` 把同一份 DocData 输出为 EPUB 3：封面 → 书名页 → 目录 → 导读（一句话+要点+时间跳转）
   → 各章（小结/金句/章节配图/全文）→ 尾页；中文只出现在可见正文，**书内文件名/属性值/CSS 全 ASCII**

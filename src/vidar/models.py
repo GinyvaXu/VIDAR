@@ -128,3 +128,26 @@ class SummaryResult(BaseModel):
     chapters: list[Chapter] = Field(default_factory=list)
     tokens_in: int = 0
     tokens_out: int = 0
+
+
+# --------------------------------------------------------------------------- #
+# translate 产物（双语对照）
+# --------------------------------------------------------------------------- #
+class TranslatedSegment(BaseModel):
+    """逐段翻译：段号/时间戳与精修稿 1:1 对应。"""
+
+    idx: int
+    start: float
+    end: float
+    source_text: str  # 翻译时的源文本快照（= 精修稿该段）
+    translated_text: str
+
+
+class TranslateResult(BaseModel):
+    model: str
+    created_at: datetime = Field(default_factory=_now)
+    source_language: str = ""
+    target_language: str = "zh"
+    tokens_in: int = 0
+    tokens_out: int = 0
+    segments: list[TranslatedSegment] = Field(default_factory=list)

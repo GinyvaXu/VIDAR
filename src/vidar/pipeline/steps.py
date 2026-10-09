@@ -1,8 +1,5 @@
-"""8 个流水线步骤。
-
-M1 已实现：resolve / download / audio / asr（产出 asr.json 与原始逐字稿）。
-M2 待实现：refine / chapters / summarize / export。
-"""
+"""10 个流水线步骤：resolve → download → audio → asr → refine → translate
+→ chapters → summarize → frames → export。"""
 
 from __future__ import annotations
 
@@ -24,6 +21,8 @@ from ..refine import refine_asr_result
 from ..render import render_asr_transcript, render_refined_transcript
 from ..source import extract_page, normalize_source
 from ..summarize import summarize
+from ..translate import apply_translation, load_translation, should_translate, translate_segments
+from ..translate import language_name as language_display_name
 from ..utils.audio import decode_to_wav
 from ..utils.text import format_clock, parse_bvid
 from .context import RunContext
@@ -37,7 +36,7 @@ def _load_json_model(ctx: RunContext, filename: str, model_type: type[ModelT]) -
         raise VidarError(
             f"缺少中间产物 {filename}",
             hint="请先运行前置步骤：resolve → download → audio → asr → refine → "
-            "chapters → summarize",
+            "translate → chapters → summarize",
         )
     return model_type.model_validate_json(path.read_text(encoding="utf-8"))
 
@@ -206,6 +205,49 @@ class RefineStep:
         return {"refine": "refine.json", "refined": "transcript.refined.md"}
 
 
+class TranslateStep:
+    """双语翻译（LLM）：精修稿 → 目标语言译文（1:1 段号，供双语对照）。"""
+
+    name = "translate"
+    title = "双语翻译（LLM）"
+    milestone: str | None = None
+
+    def run(self, ctx: RunContext) -> dict[str, str]:
+        settings = ctx.settings.translate
+        stale = ctx.artifact("translate.json")
+        if not settings.enabled:
+            ctx.log.info("翻译已关闭（translate.enabled=false），跳过")
+            stale.unlink(missing_ok=True)
+            return {}
+
+        refine = _load_json_model(ctx, "refine.json", RefineResult)
+        asr = _load_json_model(ctx, "asr.json", AsrResult)
+        if not should_translate(
+            asr.language, settings.target_language, skip_same=settings.skip_languages
+        ):
+            ctx.log.info(
+                "源语言（%s）即目标语言（%s），跳过翻译",
+                language_display_name(asr.language),
+                language_display_name(settings.target_language),
+            )
+            stale.unlink(missing_ok=True)
+            return {}
+
+        result = translate_segments(ctx, refine, asr.language)
+        ctx.artifact("translate.json").write_text(
+            result.model_dump_json(indent=2), encoding="utf-8"
+        )
+        ctx.log.info(
+            "翻译完成：%d 段（%s → %s，tokens %d/%d）",
+            len(result.segments),
+            result.source_language,
+            result.target_language,
+            result.tokens_in,
+            result.tokens_out,
+        )
+        return {"translate": "translate.json"}
+
+
 class ChaptersStep:
     name = "chapters"
     title = "章节切分（LLM）"
@@ -213,6 +255,8 @@ class ChaptersStep:
 
     def run(self, ctx: RunContext) -> dict[str, str]:
         refine = _load_json_model(ctx, "refine.json", RefineResult)
+        # 有译文时章节基于译文切分（文档语言与目标语言一致）
+        refine = apply_translation(refine, load_translation(ctx))
         chapters, _client = build_chapters(ctx, refine)
         payload = json.dumps([ch.model_dump() for ch in chapters], ensure_ascii=False, indent=2)
         ctx.artifact("chapters.json").write_text(payload, encoding="utf-8")
@@ -227,6 +271,7 @@ class SummarizeStep:
 
     def run(self, ctx: RunContext) -> dict[str, str]:
         refine = _load_json_model(ctx, "refine.json", RefineResult)
+        refine = apply_translation(refine, load_translation(ctx))
         chapters = _load_chapters(ctx)
         summary, _client = summarize(ctx, refine, chapters)
         ctx.artifact("summary.json").write_text(summary.model_dump_json(indent=2), encoding="utf-8")
@@ -287,6 +332,7 @@ def default_steps() -> list[object]:
         AudioStep(),
         AsrStep(),
         RefineStep(),
+        TranslateStep(),
         ChaptersStep(),
         SummarizeStep(),
         FramesStep(),
@@ -300,6 +346,7 @@ STEP_ORDER = [
     "audio",
     "asr",
     "refine",
+    "translate",
     "chapters",
     "summarize",
     "frames",

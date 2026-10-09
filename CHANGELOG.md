@@ -1,5 +1,23 @@
 # 更新日志
 
+## [0.7.0] - 2026-10-09
+### Added
+- **双语翻译（外语视频自动翻译）**：ASR 语言自动检测（`language = "auto"` 为默认）；新增 `translate` 流水线步骤，
+  逐段 1:1 翻译（`translate.json`），缺段自动重试、异常回退原文；章节与摘要基于译文生成，保证文档语言一致
+- **双语排版**：精修稿（译文在上、原文在下对照）；SRT 双语（可 `bilingual=false` 只出译文）；
+  PDF / EPUB / Word（译文正文 + 原文小字）；`--no-bilingual` 可只出译文
+- 翻译配置 `[translate]`：`enabled` / `target_language`（zh/en/ja/ko…）/ `max_chars`；
+  CLI：`run --translate/--no-translate --target-lang <lang> --bilingual/--no-bilingual`，`vidar pdf/epub --bilingual/--no-bilingual`
+- GUI：设置面板新增「自动翻译外语视频 / 目标语言 / 双语排版」；预览排版窗口新增「双语对照」勾选
+
+### Changed
+- 流水线扩为 10 步：`refine → translate → chapters → summarize`（中文视频自动跳过翻译）
+- 精修 / 章节 / 摘要提示词改为语言无关：外语文稿保持原语言，摘要与章节标题跟随文稿语言
+- m2 集成测试改为确定性（关闭截图抽帧，不再依赖真实网络下载视频）
+
+### Fixed
+- 关闭双语时正文回退到原文的语义问题：现在始终使用译文（文档语言 = 目标语言），双语开关只控制是否附原文
+
 ## [0.6.0] - 2026-10-08
 ### Added
 - **EPUB 电子书导出**（`--epub` / `vidar epub`）：封面 → 书名页 → 目录 → 导读（要点+时间跳转）→ 各章

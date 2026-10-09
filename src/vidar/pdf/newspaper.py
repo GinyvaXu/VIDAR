@@ -61,6 +61,7 @@ def _build_styles(scale: float = 1.0) -> dict:
         "h2": para("np-h2", size=13.5 * s, leading=1.3, bold=True, keep_with_next=True),
         "chapter_lead": para("np-chapter-lead", size=10 * s, leading=1.5, color=MUTED),
         "body": para("np-body", size=10.5 * s, leading=1.65, align=TA_JUSTIFY),
+        "source": para("np-source", size=8.2 * s, leading=1.5, color=MUTED, space_after=4),
         "quote": para("np-quote", size=10 * s, leading=1.55, color=MUTED),
         "caption": para("np-caption", size=8.5 * s, leading=1.4, align=TA_CENTER, color=MUTED),
         "box_title": para("np-box-title", size=11 * s, leading=1.3, bold=True),
@@ -231,8 +232,10 @@ def build_newspaper(data: DocData) -> Path:
             figure_number += 1
 
         if data.mode == "full":
-            for _start, text in data.chapter_paragraphs(chapter):
+            for _start, text, source in data.chapter_paragraphs(chapter):
                 story.append(Paragraph(escape(text), styles["body"]))
+                if source:
+                    story.append(Paragraph(escape(source), styles["source"]))
 
         story.append(Spacer(1, 9))
 

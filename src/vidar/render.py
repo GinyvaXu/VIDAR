@@ -4,8 +4,20 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from .models import AsrResult, RefineResult, SummaryResult, VideoMeta
+from .models import AsrResult, RefineResult, SummaryResult, TranslateResult, VideoMeta
 from .utils.text import format_clock, format_srt_time
+
+
+def _translation_map(
+    translation: TranslateResult | None, bilingual: bool
+) -> dict[int, str]:
+    if translation is None or not bilingual:
+        return {}
+    return {
+        seg.idx: seg.translated_text
+        for seg in translation.segments
+        if seg.translated_text.strip()
+    }
 
 
 def note_link(url: str, start: float | None) -> str:
@@ -31,15 +43,33 @@ def render_asr_transcript(result: AsrResult, *, title: str = "原始逐字稿") 
     return "\n".join(lines)
 
 
-def render_refined_transcript(refine: RefineResult, *, title: str = "精修稿") -> str:
+def render_refined_transcript(
+    refine: RefineResult,
+    *,
+    title: str = "精修稿",
+    translation: TranslateResult | None = None,
+    bilingual: bool = False,
+) -> str:
+    mapping = _translation_map(translation, bilingual)
     lines: list[str] = [
         f"# {title}",
         "",
         f"> 精修模型：{refine.model}　·　tokens：{refine.tokens_in} → {refine.tokens_out}",
         "",
     ]
+    if mapping and translation is not None:
+        lines += [
+            f"> 双语对照：译文在上、原文在下（{translation.source_language} → "
+            f"{translation.target_language}）",
+            "",
+        ]
     for seg in refine.segments:
-        lines.append(f"- **[{format_clock(seg.start)}]** {seg.refined_text}")
+        translated = mapping.get(seg.idx, "")
+        if translated:
+            lines.append(f"- **[{format_clock(seg.start)}]** {translated}")
+            lines.append(f"  - *{seg.refined_text}*")
+        else:
+            lines.append(f"- **[{format_clock(seg.start)}]** {seg.refined_text}")
     lines.append("")
     return "\n".join(lines)
 
@@ -127,18 +157,29 @@ def render_outline(meta: VideoMeta, summary: SummaryResult) -> str:
     return "\n".join(lines)
 
 
-def render_srt(refine: RefineResult | None, asr: AsrResult) -> str:
-    """以精修稿（无则原始稿）生成 SRT。"""
+def render_srt(
+    refine: RefineResult | None,
+    asr: AsrResult,
+    *,
+    translation: TranslateResult | None = None,
+    bilingual: bool = False,
+) -> str:
+    """以精修稿（无则原始稿）生成 SRT；有译文时用译文（双语时译文在上、原文在下）。"""
+    mapping = _translation_map(translation, translation is not None)
     if refine is not None and refine.segments:
-        source = [(seg.start, seg.end, seg.refined_text) for seg in refine.segments]
+        source = [
+            (seg.start, seg.end, seg.refined_text, mapping.get(seg.idx, ""))
+            for seg in refine.segments
+        ]
     else:
-        source = [(seg.start, seg.end, seg.text) for seg in asr.segments]
+        source = [(seg.start, seg.end, seg.text, "") for seg in asr.segments]
     lines: list[str] = []
-    for number, (start, end, text) in enumerate(source, start=1):
+    for number, (start, end, text, translated) in enumerate(source, start=1):
+        body = (f"{translated}\n{text}" if bilingual else translated) if translated else text
         lines += [
             str(number),
             f"{format_srt_time(start)} --> {format_srt_time(end)}",
-            text,
+            body,
             "",
         ]
     return "\n".join(lines)

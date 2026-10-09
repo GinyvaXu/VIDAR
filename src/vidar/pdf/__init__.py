@@ -6,7 +6,7 @@ from pathlib import Path
 
 from ..errors import DependencyError, VidarError
 from ..frames import ExtractedFrame
-from ..models import AsrResult, RefineResult, SummaryResult, VideoMeta
+from ..models import AsrResult, RefineResult, SummaryResult, TranslateResult, VideoMeta
 
 # 字号档位 → 缩放系数（compact 小字一页能放更多内容）
 SCALE_PRESETS = {"compact": 0.85, "standard": 1.0, "large": 1.18}
@@ -52,6 +52,8 @@ class DocData:
         scale: str | float = "standard",
         point_figures: str = "all",
         point_thumb_mm: float = 28.0,
+        translation: TranslateResult | None = None,
+        bilingual: bool = True,
     ) -> None:
         self.meta = meta
         self.summary = summary
@@ -64,17 +66,40 @@ class DocData:
         self.scale = resolve_scale(scale, 1.0)
         self.point_figures = point_figures if point_figures in POINT_FIGURE_MODES else "all"
         self.point_thumb_mm = float(point_thumb_mm) if point_thumb_mm else 28.0
+        self.translation = translation
+        self.bilingual = bool(bilingual) and translation is not None
+        # 译文映射始终构建：关闭双语时正文仍用译文（文档语言 = 目标语言）
+        self._translations: dict[int, str] = {}
+        if translation is not None:
+            self._translations = {
+                seg.idx: seg.translated_text
+                for seg in translation.segments
+                if seg.translated_text.strip()
+            }
 
     # ------------------------------------------------------------------ #
-    def chapter_paragraphs(self, chapter) -> list[tuple[float, str]]:
-        """章内精修段落（按时间归属）。"""
+    def chapter_paragraphs(self, chapter) -> list[tuple[float, str, str]]:
+        """章内段落（按时间归属）：(时间, 正文, 原文)。
+
+        有译文时正文=译文（无论是否双语）；原文仅在双语排版时附带，否则为空串。
+        """
         start = chapter.start
         end = chapter.end if chapter.end is not None else float("inf")
-        return [
-            (segment.start, segment.refined_text)
-            for segment in self.refine.segments
-            if start <= segment.start < end
-        ]
+        rows: list[tuple[float, str, str]] = []
+        for segment in self.refine.segments:
+            if not (start <= segment.start < end):
+                continue
+            translated = self._translations.get(segment.idx, "")
+            if translated:
+                source = segment.refined_text if self.bilingual else ""
+                rows.append((segment.start, translated, source))
+            else:
+                rows.append((segment.start, segment.refined_text, ""))
+        return rows
+
+    def paragraph_source(self, idx: int) -> str:
+        """指定段落的译文（无则空串）——供逐字稿/SRT 双语渲染。"""
+        return self._translations.get(idx, "")
 
     def chapter_figures(self, chapter) -> list[tuple[float, str, Path]]:
         """章内配图（时间, 图注, 文件路径）。"""

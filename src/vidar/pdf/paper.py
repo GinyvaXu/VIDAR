@@ -84,6 +84,7 @@ def _build_styles(scale: float = 1.0) -> dict:
             keep_with_next=True,
         ),
         "body": para("pp-body", size=11 * s, leading=1.5, align=TA_JUSTIFY, space_after=6 * s),
+        "source": para("pp-source", size=9 * s, leading=1.45, color=MUTED, space_after=6 * s),
         "abstract": para("pp-abstract", size=10.5 * s, leading=1.55, align=TA_JUSTIFY),
         "abstract_item": para("pp-abstract-item", size=10.5 * s, leading=1.55),
         "quote": para("pp-quote", size=10.5 * s, leading=1.55, color=MUTED),
@@ -215,9 +216,11 @@ def build_paper(data: DocData) -> Path:
             figure_number += 1
 
         if data.mode == "full":
-            for seg_start, text in data.chapter_paragraphs(chapter):
+            for seg_start, text, source in data.chapter_paragraphs(chapter):
                 suffix = f' <font size="8" color="#5f5f5f">[{format_clock(seg_start)}]</font>'
                 story.append(Paragraph(escape(text) + suffix, styles["body"]))
+                if source:
+                    story.append(Paragraph(escape(source), styles["source"]))
         story.append(Spacer(1, 8))
 
     story += [

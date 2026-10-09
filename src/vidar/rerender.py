@@ -18,6 +18,7 @@ from .frames import load_frames
 from .models import AsrResult, RefineResult, SummaryResult, VideoMeta
 from .pdf import DocData, render_docx, render_pdf
 from .pipeline.context import RunContext
+from .translate import load_translation
 
 _REQUIRED_MODELS = (
     ("meta.json", VideoMeta),
@@ -36,6 +37,7 @@ def load_doc_data(
     scale: str | float | None = None,
     point_figures: str | None = None,
     point_thumb_mm: float | None = None,
+    bilingual: bool | None = None,
 ) -> tuple[DocData, Path]:
     """从 work 目录组装渲染数据；缺产物时给出可操作的提示。"""
     ctx = RunContext(settings, source)
@@ -86,6 +88,8 @@ def load_doc_data(
         point_thumb_mm=(
             point_thumb_mm if point_thumb_mm is not None else export_cfg.point_thumb_mm
         ),
+        translation=load_translation(ctx),
+        bilingual=bilingual if bilingual is not None else export_cfg.bilingual,
     )
     return data, out_dir
 
@@ -101,6 +105,7 @@ def rerender_task(
     point_thumb_mm: float | None = None,
     docx: bool = False,
     epub: bool = False,
+    bilingual: bool | None = None,
 ) -> dict[str, Path]:
     """重渲染 PDF（可选 Word / EPUB），返回产物路径字典。"""
     data, out_dir = load_doc_data(
@@ -111,6 +116,7 @@ def rerender_task(
         scale=scale,
         point_figures=point_figures,
         point_thumb_mm=point_thumb_mm,
+        bilingual=bilingual,
     )
     out_dir.mkdir(parents=True, exist_ok=True)
 
