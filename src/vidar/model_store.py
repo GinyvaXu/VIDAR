@@ -3,10 +3,12 @@
 - 大文件（model.bin）分片并行下载，小文件直连（复用 utils.download）
 - 断点续传：分片文件保留，重跑跳过已完成分片
 - 大小校验：在线取 HF API 元数据，离线用内置表兜底
+- 模型目录与推荐：常见型号清单（大小/显存），按显卡显存推荐档位
 """
 
 from __future__ import annotations
 
+import subprocess
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -51,6 +53,82 @@ KNOWN_SIZES: dict[str, dict[str, int]] = {
 }
 
 BIG_FILE_MIN_BYTES = 100 * 1024 * 1024  # 未知模型时 model.bin 的合理下限
+
+
+# --------------------------------------------------------------------------- #
+# 模型目录与推荐（GUI「模型管理」页 / CLI model list|recommend 共用）
+# --------------------------------------------------------------------------- #
+@dataclass(frozen=True)
+class ModelSpec:
+    alias: str
+    repo: str
+    approx_mb: int  # 近似总大小（MB）
+    vram_gb: float  # 建议显存下限（GB，float16 推理粗略值）
+    note: str
+
+
+MODEL_CATALOG: tuple[ModelSpec, ...] = (
+    ModelSpec("large-v3", "Systran/faster-whisper-large-v3", 3100, 6.0, "精度最高，推荐"),
+    ModelSpec(
+        "large-v3-turbo", "Systran/faster-whisper-large-v3-turbo", 1620, 4.0,
+        "接近 large 的精度，速度更快",
+    ),
+    ModelSpec("medium", "Systran/faster-whisper-medium", 1530, 3.0, "中档，显存紧张时可用"),
+    ModelSpec("small", "Systran/faster-whisper-small", 490, 2.0, "轻量，低显存 / CPU 可用"),
+    ModelSpec("base", "Systran/faster-whisper-base", 150, 1.0, "最小可用，精度较低"),
+)
+
+
+def catalog() -> list[ModelSpec]:
+    """常见模型清单（按推荐度排序）。"""
+    return list(MODEL_CATALOG)
+
+
+def find_spec(alias: str) -> ModelSpec | None:
+    for spec in MODEL_CATALOG:
+        if spec.alias == alias:
+            return spec
+    return None
+
+
+def detect_vram_gb() -> float | None:
+    """读取首块 NVIDIA GPU 的显存总量（GB）；无 nvidia-smi / 无 GPU 时返回 None。"""
+    try:
+        completed = subprocess.run(
+            ["nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits"],
+            capture_output=True,
+            text=True,
+            timeout=8,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if completed.returncode != 0 or not completed.stdout.strip():
+        return None
+    first_line = completed.stdout.strip().splitlines()[0].strip()
+    with suppress(ValueError):
+        return round(int(first_line) / 1024, 1)
+    return None
+
+
+def recommend_model(vram_gb: float | None, *, has_cuda: bool = False) -> tuple[ModelSpec, str]:
+    """按显存推荐模型，返回（型号, 理由）。"""
+    if vram_gb is not None:
+        for spec in MODEL_CATALOG:
+            if vram_gb >= spec.vram_gb:
+                return (
+                    spec,
+                    f"检测到显存 {vram_gb:.1f} GB ≥ {spec.vram_gb:.0f} GB，推荐 {spec.alias}",
+                )
+        return (
+            MODEL_CATALOG[-1],
+            f"显存仅 {vram_gb:.1f} GB：推荐 {MODEL_CATALOG[-1].alias}，或改用 CPU（--device cpu）",
+        )
+    if has_cuda:
+        turbo = find_spec("large-v3-turbo") or MODEL_CATALOG[1]
+        return turbo, "有 CUDA 但未取到显存信息：保守推荐 large-v3-turbo"
+    small = find_spec("small") or MODEL_CATALOG[3]
+    return small, "未检测到 NVIDIA GPU：推荐 small（CPU 模式，速度较慢）"
 
 
 def resolve_repo(model: str) -> str:

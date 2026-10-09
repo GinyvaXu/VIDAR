@@ -177,6 +177,12 @@ model = "deepseek-v4.1-flash"
 | `vidar pdf <BV>` | **单独重渲染 PDF**（`--style` / `--mode` / `--scale` / `--point-figures` / `--open`），不重跑流水线，适合反复调试排版 |
 | `vidar epub <BV>` | **单独重导出 EPUB**（`--mode full\|brief` / `--open`），不重跑流水线 |
 | `vidar model download/check` | 模型下载 / 校验 |
+| `vidar model list` | 模型清单（大小 / 显存建议 / 安装状态） |
+| `vidar model recommend` | 按显卡显存推荐模型档位 |
+| `vidar llm presets` | 列出 LLM 服务商预设（含 Key 获取方式） |
+| `vidar llm test` | LLM 连通性测试（1 token，含修复建议） |
+| `vidar llm setup <预设> --write` | 一键配置 LLM（预览 → 落盘 → 测试） |
+| `vidar batch <清单文件>` | 批量处理多条视频（顺序执行、失败不中断） |
 | `vidar doctor --net` | 环境自检（含 B 站与 LLM API 连通性） |
 | `vidar config init/show` | 配置管理 |
 | `vidar gui` | 图形界面 |

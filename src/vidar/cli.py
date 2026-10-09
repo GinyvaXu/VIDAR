@@ -48,6 +48,8 @@ model_app = typer.Typer(help="ASR 模型辅助下载与校验", no_args_is_help=
 app.add_typer(model_app, name="model")
 gpu_app = typer.Typer(help="GPU（CUDA）运行时辅助安装", no_args_is_help=True)
 app.add_typer(gpu_app, name="gpu")
+llm_app = typer.Typer(help="LLM 接入引导：服务商预设 / 连通性测试 / 一键配置", no_args_is_help=True)
+app.add_typer(llm_app, name="llm")
 
 console = Console()
 
@@ -296,6 +298,81 @@ def epub(
 
 
 # --------------------------------------------------------------------------- #
+# batch（批量任务队列）
+# --------------------------------------------------------------------------- #
+@app.command()
+def batch(
+    file: Path = typer.Argument(..., help="链接清单文件（每行一个 BV 号/链接，# 注释）"),
+    config: Path | None = typer.Option(None, "--config", help="指定配置文件路径"),
+    from_step: str | None = typer.Option(None, "--from", help="从指定步骤开始（重置该步及后续）"),
+    to_step: str | None = typer.Option(None, "--to", help="执行到指定步骤为止"),
+    stop_on_error: bool = typer.Option(
+        False, "--stop-on-error", help="遇到失败立即停止（默认继续下一条）"
+    ),
+) -> None:
+    """批量处理多条视频（顺序执行、失败不中断、末尾汇总）。"""
+    from .batch import read_sources, run_batch
+
+    try:
+        settings = _load(config)
+        _setup_logs(settings)
+        sources = read_sources(file)
+    except VidarError as exc:
+        _fail(exc, code=2)
+        return
+
+    console.print(f"[bold]批量任务[/bold]：{len(sources)} 条（清单：{file}）")
+
+    def on_event(event: str, data: dict) -> None:
+        if event != "batch_item":
+            return
+        status = str(data.get("status", ""))
+        index, total = data.get("index"), data.get("total")
+        source = data.get("source")
+        if status == "running":
+            console.print(f"[cyan]▶ [{index}/{total}] {source}[/cyan]")
+        elif status == "done":
+            console.print(f"[green]✓ [{index}/{total}] {source}[/green]")
+        elif status == "failed":
+            console.print(f"[red]✗ [{index}/{total}] {source}：{data.get('error', '')}[/red]")
+        elif status == "cancelled":
+            console.print(f"[yellow]■ [{index}/{total}] {source} 已取消[/yellow]")
+
+    try:
+        result = run_batch(
+            settings,
+            sources,
+            on_event=on_event,
+            from_step=from_step,
+            to_step=to_step,
+            stop_on_error=stop_on_error,
+        )
+    except KeyboardInterrupt:
+        _fail(VidarError("批量任务被中断（已完成的任务可续跑）"), code=130)
+        return
+
+    table = Table(title="批量结果")
+    table.add_column("来源", style="cyan")
+    table.add_column("状态", no_wrap=True)
+    table.add_column("说明", style="dim")
+    labels = {
+        "done": "[green]完成[/green]",
+        "failed": "[red]失败[/red]",
+        "cancelled": "[yellow]取消[/yellow]",
+        "pending": "未执行",
+    }
+    for item in result.items:
+        table.add_row(item.source, labels.get(item.status, item.status), item.error)
+    console.print(table)
+    summary = f"完成 {result.done_count}/{len(result.items)}"
+    if result.failed:
+        summary += f"，失败 {len(result.failed)}"
+    console.print(f"[bold]{summary}[/bold]")
+    if result.failed:
+        raise typer.Exit(1)
+
+
+# --------------------------------------------------------------------------- #
 # doctor
 # --------------------------------------------------------------------------- #
 @app.command()
@@ -464,6 +541,184 @@ def model_check(
     console.print(f"[red]✗ {ok_count}/{len(results)} 个文件通过[/red]")
     console.print("[dim]修复：vidar model download（自动重下缺失/损坏文件，支持断点续传）[/dim]")
     raise typer.Exit(1)
+
+
+@model_app.command("list")
+def model_list(
+    dir: Path | None = typer.Option(None, "--dir", help="模型根目录（默认 ./models）"),
+) -> None:
+    """列出常用模型（大小 / 显存建议 / 是否已安装）。"""
+    from .model_store import catalog, resolve_repo
+
+    root = dir or Path.cwd() / "models"
+    table = Table(title="ASR 模型清单")
+    table.add_column("型号", style="cyan", no_wrap=True)
+    table.add_column("大小", justify="right")
+    table.add_column("显存", justify="right")
+    table.add_column("状态", no_wrap=True)
+    table.add_column("说明", style="dim")
+    for spec in catalog():
+        folder = resolve_repo(spec.alias).split("/")[-1]
+        installed = (root / folder / "model.bin").exists()
+        table.add_row(
+            spec.alias,
+            f"≈{spec.approx_mb / 1024:.1f} GB",
+            f"≥{spec.vram_gb:.0f} GB",
+            "[green]已安装[/green]" if installed else "—",
+            spec.note,
+        )
+    console.print(table)
+    console.print(
+        "[dim]安装：vidar model download <型号>　·　档位推荐：vidar model recommend[/dim]"
+    )
+
+
+@model_app.command("recommend")
+def model_recommend() -> None:
+    """按显卡显存推荐模型档位（含一键安装命令）。"""
+    from .asr import cuda_available
+    from .model_store import detect_vram_gb, recommend_model
+
+    vram = detect_vram_gb()
+    has_cuda = cuda_available()
+    spec, reason = recommend_model(vram, has_cuda=has_cuda)
+    console.print(f"[bold]{reason}[/bold]")
+    console.print(f"安装命令：vidar model download {spec.alias}")
+    if spec.alias != "large-v3":
+        console.print("[dim]显存充足且追求精度时可选择 large-v3[/dim]")
+
+
+# --------------------------------------------------------------------------- #
+# llm（接入引导）
+# --------------------------------------------------------------------------- #
+@llm_app.command("presets")
+def llm_presets() -> None:
+    """列出内置服务商预设（含 Key 环境变量与获取链接）。"""
+    from .llm.providers import CUSTOM_HINT, PRESETS
+
+    table = Table(title="LLM 服务商预设")
+    table.add_column("预设", style="cyan", no_wrap=True)
+    table.add_column("名称")
+    table.add_column("默认模型", no_wrap=True)
+    table.add_column("Key 环境变量", no_wrap=True)
+    table.add_column("说明", style="dim")
+    for preset in PRESETS:
+        table.add_row(
+            preset.key,
+            preset.label,
+            preset.model,
+            preset.env_key or "（无需）",
+            preset.note,
+        )
+    console.print(table)
+    from rich.markup import escape as markup_escape
+
+    console.print(f"[dim]{markup_escape(CUSTOM_HINT)}[/dim]")
+    console.print("[dim]应用预设：vidar llm setup <预设> [--key sk-...] --write[/dim]")
+
+
+@llm_app.command("test")
+def llm_test(
+    config: Path | None = typer.Option(None, "--config", help="指定配置文件路径"),
+    base: str | None = typer.Option(None, "--base", help="临时覆盖 api_base"),
+    key: str | None = typer.Option(None, "--key", help="临时覆盖 api_key"),
+    model: str | None = typer.Option(None, "--model", help="临时覆盖模型名"),
+) -> None:
+    """测试 LLM 连通性（1 token 请求，成本可忽略）。"""
+    from .llm.providers import detect_preset, test_connection
+
+    try:
+        settings = _load(config)
+    except VidarError as exc:
+        _fail(exc, code=2)
+    overrides = {
+        name: value
+        for name, value in (("api_base", base), ("api_key", key), ("model", model))
+        if value
+    }
+    llm_settings = settings.llm.model_copy(update=overrides) if overrides else settings.llm
+    preset = detect_preset(llm_settings.api_base)
+    if preset is not None:
+        console.print(f"[dim]当前预设：{preset.label}[/dim]")
+    report = test_connection(llm_settings)
+    if report.ok:
+        console.print(f"[green]✓ {report.message}[/green]")
+        return
+    from rich.markup import escape as markup_escape
+
+    console.print(f"[red]✗ {markup_escape(report.message)}[/red]")
+    if report.hint:
+        console.print(f"[yellow]建议：{markup_escape(report.hint)}[/yellow]")
+    raise typer.Exit(1)
+
+
+@llm_app.command("setup")
+def llm_setup(
+    preset: str = typer.Argument(..., help="预设 key（vidar llm presets 查看）"),
+    key: str | None = typer.Option(None, "--key", help="API Key（不传则读该预设的环境变量）"),
+    model: str | None = typer.Option(None, "--model", help="覆盖默认模型名"),
+    config: Path | None = typer.Option(None, "--config", help="目标配置文件（默认当前/用户配置）"),
+    write: bool = typer.Option(False, "--write", help="真正写入配置文件（默认只预览）"),
+) -> None:
+    """应用服务商预设：预览 → --write 落盘 → vidar llm test 验证。"""
+    import os
+
+    from .config import (
+        deep_merge,
+        default_config_path,
+        export_settings_dict,
+        write_config_dict,
+    )
+    from .llm.providers import PRESETS, find_preset
+
+    chosen = find_preset(preset)
+    if chosen is None:
+        _fail(
+            VidarError(
+                f"未知预设：{preset}",
+                hint="可选：" + " / ".join(item.key for item in PRESETS),
+            )
+        )
+    try:
+        settings = _load(config)
+    except VidarError as exc:
+        _fail(exc, code=2)
+
+    env_value = os.environ.get(chosen.env_key, "") if chosen.env_key else ""
+    resolved_key = key or env_value
+    target = config or settings.config_path or default_config_path()
+
+    console.print(f"预设　：{chosen.label}")
+    console.print(f"地址　：{chosen.api_base}")
+    console.print(f"模型　：{model or chosen.model}")
+    if chosen.env_key:
+        if key:
+            key_source = "命令行 --key"
+        elif env_value:
+            key_source = f"环境变量 {chosen.env_key}"
+        else:
+            key_source = "未找到（可稍后用 --key 或在 GUI 设置中填写）"
+        console.print(f"Key　：{key_source}")
+    if chosen.key_url:
+        console.print(f"[dim]获取 Key：{chosen.key_url}[/dim]")
+
+    patch = {
+        "llm": {
+            "api_base": chosen.api_base,
+            "model": model or chosen.model,
+            "api_key": resolved_key,
+        }
+    }
+    if not write:
+        console.print(f"[dim]预览模式：加 --write 写入 {target}[/dim]")
+        return
+    if resolved_key and not key and env_value:
+        patch["llm"]["api_key"] = ""  # 环境变量已就绪：不把 Key 写进文件
+        console.print("[dim]检测到环境变量已提供 Key，配置文件中的 api_key 留空（更安全）[/dim]")
+    data = deep_merge(export_settings_dict(settings), patch)
+    write_config_dict(target, data)
+    console.print(f"[green]✓ 已写入配置：{target}[/green]")
+    console.print("[dim]下一步：vidar llm test[/dim]")
 
 
 # --------------------------------------------------------------------------- #

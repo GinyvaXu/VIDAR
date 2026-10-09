@@ -38,7 +38,7 @@ HALLUCINATION_PATTERNS = (
 )
 
 
-def _cuda_available() -> bool:
+def cuda_available() -> bool:
     try:
         import ctranslate2  # type: ignore[import-not-found]
 
@@ -120,7 +120,7 @@ def resolve_device(settings: AsrSettings) -> tuple[str, str]:
     """解析 device / compute_type 的 auto 逻辑。"""
     device = settings.device
     if device == "auto":
-        device = "cuda" if _cuda_available() else "cpu"
+        device = "cuda" if cuda_available() else "cpu"
     compute_type = settings.compute_type
     if compute_type == "auto":
         compute_type = "float16" if device == "cuda" else "int8"

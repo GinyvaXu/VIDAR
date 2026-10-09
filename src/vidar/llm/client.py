@@ -62,6 +62,14 @@ def _slice_json(text: str) -> str | None:
     return text[start : end + 1]
 
 
+def request_headers(api_base: str) -> dict[str, str]:
+    """统一请求头：UA + OpenCode Go/Zen 接入规范（稳定会话 ID，利于路由与提示词缓存）。"""
+    headers = {"User-Agent": f"vidar/{__version__}"}
+    if "opencode.ai" in api_base:
+        headers["x-opencode-session"] = uuid4().hex
+    return headers
+
+
 class LlmClient:
     def __init__(self, settings: LlmSettings) -> None:
         if not settings.configured:
@@ -77,16 +85,12 @@ class LlmClient:
 
         self.settings = settings
         self.usage = Usage()
-        headers = {"User-Agent": f"vidar/{__version__}"}
-        if "opencode.ai" in settings.api_base:
-            # OpenCode Go/Zen 接入规范：稳定会话 ID，利于路由与提示词缓存
-            headers["x-opencode-session"] = uuid4().hex
         self._client = OpenAI(
             api_key=settings.api_key,
             base_url=settings.api_base,
             timeout=settings.timeout_sec,
             max_retries=0,  # 由本类统一控制重试
-            default_headers=headers,
+            default_headers=request_headers(settings.api_base),
         )
 
     # ------------------------------------------------------------------ #

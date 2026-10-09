@@ -39,6 +39,21 @@ VIDAR {{VERSION}} 便携版（Windows x64）
   手机端书架上自动出现；支持多端同步进度。
   重导命令：VIDAR-CLI.exe epub BV号（--mode brief 精简 / --open 直接打开）
 
+【模型管理】
+  VIDAR-CLI.exe model list                  模型清单（大小/显存建议/安装状态）
+  VIDAR-CLI.exe model recommend             按显卡显存推荐档位
+  VIDAR-CLI.exe model download large-v3     下载（分片并行、断点续传、大小校验）
+  VIDAR-CLI.exe model check large-v3        校验完整性
+
+【首次配置 LLM】（3 步）
+  VIDAR-CLI.exe llm presets                 查看服务商预设（含 Key 获取链接）
+  VIDAR-CLI.exe llm setup deepseek --write  应用预设（或 --key sk-xxx；预览不加 --write）
+  VIDAR-CLI.exe llm test                    真实连通性测试（1 token）
+
+【批量处理】
+  VIDAR-CLI.exe batch urls.txt              清单每行一个 BV 号/链接（# 注释，失败不中断）
+  （可选 --stop-on-error 遇错即停；已完成任务自动跳过、可续跑）
+
 【双语翻译】（外语视频自动翻译，可对照阅读）
   默认开启：语言自动检测 → 非中文视频逐段翻译为中文（1:1 对照）
   VIDAR-CLI.exe run BV号 --target-lang en     目标语言换成英文（中文视频 → 英文版）

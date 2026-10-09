@@ -85,6 +85,20 @@
   纯标准库 zipfile 手写打包（零新增依赖）；重排排版 CSS（相对字号/首行缩进/图片 max-width:100%，不内嵌字体）；
   列表项/属性值统一 HTML 转义防破坏 XML；测试含「包内文件名全 ASCII」等兼容守卫。
 
+### 模型管理与 LLM 接入引导
+- **实现逻辑**：`model_store` 内置常见模型目录（大小/显存建议），读取 nvidia-smi 显存后自动推荐档位；
+  `llm/providers.py` 内置 6 家服务商预设（OpenCode Go / DeepSeek / 硅基流动 / Kimi / 智谱 / 本地 Ollama），
+  `test_connection` 用 1 token 最小请求验证并给出人话修复建议，`llm setup` 一键写配置（环境变量优先、不落盘 Key）。
+- **技术手段**：`vidar model list|recommend`、`vidar llm presets|test|setup`；统一请求头构造（含 OpenCode Go
+  会话头规范，客户端与测试共用）；rich 标记转义避免 `[llm]` 被吞；服务层接口（进度回调/断点续传/事件流）为
+  GUI 模型管理页与首启向导预留。
+
+### 批量任务队列
+- **实现逻辑**：`vidar batch <清单>` 顺序处理多条视频（一次一条），失败默认继续下一条（`--stop-on-error` 可选），
+  清单支持注释与 BOM；每条任务复用标准断点续跑语义。
+- **技术手段**：`vidar/batch.py`（read_sources / run_batch + 事件流 batch_start/batch_item/batch_finished），
+  事件带 batch_index/batch_total 供 GUI 队列页聚合展示。
+
 ### 便携版构建与 GPU 按需安装
 - **实现逻辑**：PyInstaller onedir 打包 GUI 与 CLI 双 exe（共享运行时目录）。默认**精简包**（约 250MB，不含 CUDA，音频解码用 PyAV 无需 ffmpeg）；N 卡用户运行 `vidar gpu install` 从 PyPI 镜像安装 cuBLAS/cuDNN 实测最小集；`build_portable.ps1 -WithCuda` 可构建内置 CUDA 的完整版。模型目录外置（约 3GB，可复制）。
 - **技术手段**：自定义 `.spec`（双 Analysis + 单 COLLECT，`VIDAR_BUNDLE_CUDA` 开关）；从 nvidia wheel（zip）按白名单提取 DLL（剔除 adv/nvrtc 等非必需项，省约 474MB）；`_MEIPASS` / exe 目录多路径回退；`scripts/build_portable.ps1` 一键构建与归档。

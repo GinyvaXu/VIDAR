@@ -1,5 +1,20 @@
 # 更新日志
 
+## [0.8.0] - 2026-10-09
+### Added
+- **模型下载交互（A2）**：`vidar model list`（型号 / 大小 / 显存建议 / 安装状态）、
+  `vidar model recommend`（读取 nvidia-smi 显存自动推荐档位）；服务层暴露进度回调与断点续传（供 GUI 模型管理页复用）
+- **LLM 接入引导（A3）**：内置 6 家服务商预设（OpenCode Go / DeepSeek / 硅基流动 / Kimi / 智谱 / 本地 Ollama）；
+  `vidar llm presets` 列出预设与 Key 获取方式；`vidar llm test` 真实连通性测试（1 token，含人话修复建议）；
+  `vidar llm setup <预设> [--key] --write` 一键写入配置（环境变量已提供 Key 时不再落盘）
+- **批量任务队列（A4）**：`vidar batch <清单文件>` 顺序处理多条视频、失败不中断（`--stop-on-error` 可选）；
+  事件流（batch_start / batch_item / batch_finished）为 GUI 队列页预留
+
+### Fixed
+- `vidar llm test` 缺少 OpenCode Go 会话头导致 400：统一请求头构造（客户端与测试共用）
+- 批量清单兼容 Windows BOM（utf-8-sig），避免首行被当成不同来源
+- rich 标记转义：错误建议中的 `[llm]` 不再被当作样式标记吞掉
+
 ## [0.7.0] - 2026-10-09
 ### Added
 - **双语翻译（外语视频自动翻译）**：ASR 语言自动检测（`language = "auto"` 为默认）；新增 `translate` 流水线步骤，

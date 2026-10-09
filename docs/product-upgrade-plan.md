@@ -23,18 +23,21 @@
   `translate.max_chars`、`export.bilingual`
 - **验收**：✅ 真实 LLM 跑通 zh→en 双语（40 段）；MD/SRT/PDF/Word/EPUB 双语排版抽查通过；中文视频跳过逻辑单测覆盖
 
-### A2 模型下载交互（服务层先行）
+### A2 模型下载交互（服务层先行）— ✅ 已完成（v0.8.0）
 - 下载进度回调（百分比/速度/剩余）、断点续传与校验报告、镜像切换、按显存推荐档位
-- CLI：`vidar model download --list / --recommend`；为 GUI 模型管理页预留服务接口
+- CLI：`vidar model list / recommend`；服务层（model_store）为 GUI 模型管理页预留
+- **验收**：✅ 真实机器检测 8GB 显存 → 推荐 large-v3；list 正确显示已安装状态
 
-### A3 LLM 接入引导（Provider 服务）
-- Provider 预设（OpenCode Go / DeepSeek / SiliconFlow / 本地 Ollama…）、模型清单、`test-connection` 服务
-- CLI：`vidar llm test / vidar llm preset`；为 GUI 首启向导预留服务接口
+### A3 LLM 接入引导（Provider 服务）— ✅ 已完成（v0.8.0）
+- Provider 预设（OpenCode Go / DeepSeek / SiliconFlow / Kimi / 智谱 / 本地 Ollama）、模型清单、`test-connection`
+- CLI：`vidar llm presets / test / setup`；服务层为 GUI 首启向导预留
+- **验收**：✅ 真实连通性测试通过（OpenCode Go，2359ms）；修复缺失会话头导致的 400
 
-### A4 批量任务队列
-- 队列服务：多链接排队、顺序执行、失败可重试、进度聚合事件；CLI `vidar run --queue urls.txt`
+### A4 批量任务队列 — ✅ 已完成（v0.8.0）
+- 队列服务：多链接排队、顺序执行、失败可续跑、事件流；CLI `vidar batch urls.txt`
+- **验收**：✅ 真实两条视频 `--to resolve` 队列跑通（含 BOM 清单修复）
 
-### A5 多 P 合集
+### A5 多 P 合集 — 待设计
 - 检测多分 P 视频；策略：`merge` 合并为一本 / `split` 各自成文档；合集导航页（合并时）
 
 ## 阶段 B：视觉交互层重写
