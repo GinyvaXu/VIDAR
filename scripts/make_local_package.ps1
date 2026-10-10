@@ -14,6 +14,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 Set-Location (Join-Path $PSScriptRoot "..")
+$sharedRoot = (Get-Location).Path.Replace("\", "/")
 
 if (-not (Test-Path $ReleaseDir)) { throw "发布包不存在：$ReleaseDir" }
 if (Test-Path $OutDir) { throw "本机包已存在，拒绝覆盖：$OutDir" }
@@ -37,11 +38,12 @@ $configNewline = "`r`n"
 $config = @"
 # VIDAR 本机调试包（自动生成：模型路径与 API 已配置好，开箱即用）
 # !! 本文件包含你的 API Key —— 请勿分享/上传本文件夹 !!
+# 工作/输出目录与主项目共享：历史任务跨版本保留，升级不丢
 
 [paths]
-output_dir = "./output"
-work_dir = "./work"
-logs_dir = "./logs"
+output_dir = "$sharedRoot/output"
+work_dir = "$sharedRoot/work"
+logs_dir = "$sharedRoot/logs"
 
 [asr]
 model = "$modelForToml"
@@ -71,6 +73,7 @@ $readme = @"
 VIDAR 本机调试包
 ================
 本包已预配置：模型路径、LLM API、GPU 运行时安装记录（如已安装）、PDF/Word 导出。
+工作/输出目录与主项目共享（$sharedRoot）：历史任务跨版本保留，升级不丢。
 
 - 双击 VIDAR.exe 直接使用
 - 注意：config.toml 含你的 API Key，请勿分享/上传本文件夹
