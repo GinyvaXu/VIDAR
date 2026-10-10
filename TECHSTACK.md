@@ -40,8 +40,17 @@
 - **技术手段**：纯本地模板渲染（不额外调用 LLM），frontmatter 兼容 Obsidian 等工具；输出目录 `output/日期_BV号_标题/`。
 
 ### 断点续跑与任务状态机
-- **实现逻辑**：9 个步骤（resolve / download / audio / asr / refine / chapters / summarize / frames / export）各自产物落盘并写入 `state.json`；已完成步骤自动跳过，`--from` 重置该步及后续；取消或崩溃后从断点续跑。
+- **实现逻辑**：10 个步骤各自产物落盘并写入 `state.json`；已完成步骤自动跳过，`--from` 重置该步及后续；
+  取消或崩溃后从断点续跑；GUI 历史页显示进度徽标 + 步骤明细，支持「继续」与「从任意步骤重跑」。
 - **技术手段**：pydantic 序列化状态机 + 产物存在性校验；下载 / 转码 / ASR 支持协作式取消（下载进度钩子、子进程轮询、识别分段检查）。
+
+### 暂停 / 继续 / 释放显存（检查点续跑）
+- **实现逻辑**：`RunContext` 提供 pause/release 事件与 `wait_if_paused()` 检查点；步骤在检查点把进度写入
+  `*.partial.json`；「释放显存」时当前步骤退出（标记为可续跑），运行干净结束，GUI 重启后仍可继续。
+  ASR 按「已识别结束时间」切片 WAV 续识别（16k 单声道 PCM，wave 模块切片），
+  refine/translate/summarize 按请求块续跑（块间相互独立，安全跳过）。
+- **技术手段**：threading.Event + PauseRelease 控制流异常；`utils/checkpoint.py` 统一读写；
+  暂停粒度 = 段/请求块边界（1-2 秒内生效）；模型驻留内存，继续秒回。
 
 ### 图形界面（GUI）
 - **实现逻辑**：侧边栏四页（任务 / 历史 / 模型 / 关于）+ 卡片式布局：任务页完成「粘贴链接 → 开始/取消 →

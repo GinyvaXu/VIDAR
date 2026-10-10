@@ -8,10 +8,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from .errors import LlmError, VidarError
+from .errors import LlmError, PauseRelease, VidarError
 from .llm.client import LlmClient
 from .llm.prompts import REFINE_SYSTEM, refine_prompt
 from .models import AsrResult, RefinedSegment, RefineResult
+from .utils.checkpoint import clear_checkpoint, load_checkpoint, save_checkpoint
 from .utils.text import chunk_by_chars
 
 if TYPE_CHECKING:
@@ -26,9 +27,26 @@ def refine_asr_result(ctx: RunContext, asr: AsrResult) -> RefineResult:
     chunks = chunk_by_chars(asr.segments, max_chars=ctx.settings.llm.chunk_chars)
     total = len(chunks)
 
-    refined_map: dict[int, str] = {}
+    # ---- 检查点：暂停释放后续跑，跳过已完成块 ----
+    partial_path = ctx.artifact("refine.partial.json")
+    partial = load_checkpoint(partial_path) or {}
+    refined_map: dict[int, str] = {
+        int(key): str(value)
+        for key, value in (partial.get("refined") or {}).items()
+        if str(value).strip()
+    }
+    if refined_map:
+        ctx.log.info("检测到精修检查点：已完成 %d 段，续跑中", len(refined_map))
+
     for position, chunk in enumerate(chunks, start=1):
+        if all(seg.idx in refined_map for seg in chunk):
+            continue  # 该块已完成（续跑跳过）
         ctx.raise_if_cancelled()
+        try:
+            ctx.wait_if_paused()
+        except PauseRelease:
+            save_checkpoint(partial_path, {"refined": refined_map})
+            raise
         ctx.emit(
             "progress",
             step="refine",
@@ -50,6 +68,7 @@ def refine_asr_result(ctx: RunContext, asr: AsrResult) -> RefineResult:
             text = item.get("text")
             if isinstance(index, int) and isinstance(text, str) and text.strip():
                 refined_map[index] = text.strip()
+        save_checkpoint(partial_path, {"refined": refined_map})
 
     # 补修：一次追加请求处理主请求漏掉的段落
     missing = [seg for seg in asr.segments if seg.idx not in refined_map]
@@ -90,6 +109,7 @@ def refine_asr_result(ctx: RunContext, asr: AsrResult) -> RefineResult:
         )
 
     ctx.emit("progress", step="refine", done=total, total=total, message="精修完成")
+    clear_checkpoint(partial_path)
     return RefineResult(
         model=model,
         tokens_in=client.usage.prompt_tokens,

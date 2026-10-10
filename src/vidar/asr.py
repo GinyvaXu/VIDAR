@@ -1,4 +1,9 @@
-"""faster-whisper 语音识别：模型加载、幻觉过滤、段落合并。"""
+"""faster-whisper 语音识别：模型加载、幻觉过滤、段落合并。
+
+支持暂停/续跑：逐段生成过程中可在段间挂起；「暂停并释放显存」时把已识别
+段落写入 `asr.partial.json` 检查点，续跑时从上次结束时间点切片音频继续识别
+（模型重新加载后不必从头再来）。
+"""
 
 from __future__ import annotations
 
@@ -6,11 +11,13 @@ import contextlib
 import os
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 from .config import AsrSettings, exe_dir
-from .errors import CancelledError, DependencyError, VidarError
+from .errors import CancelledError, DependencyError, PauseRelease, VidarError
 from .models import AsrResult, AsrSegment, AsrWord
+from .utils.checkpoint import clear_checkpoint, load_checkpoint, save_checkpoint
 from .utils.text import format_clock
 
 if TYPE_CHECKING:
@@ -201,6 +208,74 @@ def merge_segments(
     return merged
 
 
+def _slice_wav(source: Path, start_sec: float, target: Path) -> tuple[float, int]:
+    """把 16k 单声道 WAV 从 start_sec 起裁到 target；返回（实际起点秒, 写入帧数）。"""
+    import wave
+
+    target.unlink(missing_ok=True)
+    with wave.open(str(source), "rb") as reader:
+        rate = reader.getframerate()
+        channels = reader.getnchannels()
+        width = reader.getsampwidth()
+        total_frames = reader.getnframes()
+        start_frame = min(max(0, int(start_sec * rate)), total_frames)
+        reader.setpos(start_frame)
+        frames = reader.readframes(total_frames - start_frame)
+    with wave.open(str(target), "wb") as writer:
+        writer.setnchannels(channels)
+        writer.setsampwidth(width)
+        writer.setframerate(rate)
+        writer.writeframes(frames)
+    written = len(frames) // max(1, width * channels)
+    return start_frame / rate, written
+
+
+def _wav_duration(wav: Path) -> float:
+    import wave
+
+    with contextlib.suppress(Exception), wave.open(str(wav), "rb") as reader:
+        return reader.getnframes() / max(1, reader.getframerate())
+    return 0.0
+
+
+def _dump_raw_segment(seg: Any) -> dict:
+    """whisper 段 → 可序列化 dict（供检查点保存）。"""
+    return {
+        "start": float(seg.start),
+        "end": float(seg.end),
+        "text": str(seg.text),
+        "words": [
+            {
+                "start": float(getattr(word, "start", 0.0) or 0.0),
+                "end": float(getattr(word, "end", 0.0) or 0.0),
+                "word": str(getattr(word, "word", "") or ""),
+                "probability": getattr(word, "probability", None),
+            }
+            for word in (getattr(seg, "words", None) or [])
+        ],
+    }
+
+
+def _load_raw_segment(payload: dict) -> SimpleNamespace:
+    """检查点 dict → 轻量对象（接口与 whisper 段兼容，供 merge_segments 使用）。"""
+    words = [
+        SimpleNamespace(
+            start=float(item.get("start", 0.0)),
+            end=float(item.get("end", 0.0)),
+            word=str(item.get("word", "")),
+            probability=item.get("probability"),
+        )
+        for item in (payload.get("words") or [])
+        if isinstance(item, dict)
+    ]
+    return SimpleNamespace(
+        start=float(payload.get("start", 0.0)),
+        end=float(payload.get("end", 0.0)),
+        text=str(payload.get("text", "")),
+        words=words,
+    )
+
+
 def transcribe(ctx: RunContext, wav: Path) -> AsrResult:
     settings = ctx.settings.asr
     prepare_environment(settings)
@@ -208,6 +283,23 @@ def transcribe(ctx: RunContext, wav: Path) -> AsrResult:
         from faster_whisper import WhisperModel
     except ImportError as exc:  # pragma: no cover
         raise DependencyError("缺少 faster-whisper", hint="uv sync --extra asr") from exc
+
+    # ---- 检查点：暂停释放后从上次结束点继续 ----
+    partial_path = ctx.artifact("asr.partial.json")
+    partial = load_checkpoint(partial_path) or {}
+    saved_segments: list[dict] = [
+        item for item in (partial.get("segments") or []) if isinstance(item, dict)
+    ]
+    resume_from = float(partial.get("resume_from") or 0.0)
+    language_hint = str(partial.get("language") or "")
+    audio_duration = _wav_duration(wav)
+
+    if resume_from > 0.5 and audio_duration and resume_from >= audio_duration - 0.5:
+        # 已全部识别：直接由检查点组装（不加载模型）
+        ctx.log.info("检查点已覆盖全部音频（%.1fs），直接组装识别结果", resume_from)
+        result = _build_result(ctx, settings, saved_segments, [], language_hint)
+        clear_checkpoint(partial_path)
+        return result
 
     device, compute_type = resolve_device(settings)
     model_reference = resolve_model_reference(settings.model)
@@ -226,12 +318,29 @@ def transcribe(ctx: RunContext, wav: Path) -> AsrResult:
     except RuntimeError as exc:
         raise _wrap_gpu_error(exc) from exc
 
-    ctx.emit("progress", step="asr", done=0, total=1, message="开始识别…")
+    # ---- 续跑：从检查点时间点切片音频 ----
+    work_wav = wav
+    offset = 0.0
+    if resume_from > 0.5 and saved_segments:
+        sliced = ctx.artifact("audio.resume.wav")
+        offset, frames_written = _slice_wav(wav, resume_from, sliced)
+        if frames_written <= 0:
+            ctx.log.info("检查点已到音频末尾，直接组装识别结果")
+            result = _build_result(ctx, settings, saved_segments, [], language_hint)
+            clear_checkpoint(partial_path)
+            return result
+        work_wav = sliced
+        ctx.log.info(
+            "检测到检查点：从 %.1fs 继续识别（已保存 %d 段）", offset, len(saved_segments)
+        )
+
     language = (settings.language or "").strip().lower()
     if language in ("", "auto", "detect", "none"):
-        language = None  # 自动检测（外语视频默认路径）
+        language = language_hint or None  # 续跑时沿用首次检测的语言
+
+    ctx.emit("progress", step="asr", done=0, total=1, message="开始识别…")
     segments_iter, info = model.transcribe(
-        str(wav),
+        str(work_wav),
         language=language,
         vad_filter=settings.vad,
         condition_on_previous_text=False,  # 防复读/幻觉
@@ -241,33 +350,48 @@ def transcribe(ctx: RunContext, wav: Path) -> AsrResult:
     )
 
     duration = float(getattr(info, "duration", 0.0) or 0.0)
+    total_duration = offset + duration
     raw_segments: list[Any] = []
+
+    def save_progress() -> None:
+        last_end = (
+            offset + float(raw_segments[-1].end) if raw_segments else resume_from
+        )
+        save_checkpoint(
+            partial_path,
+            {
+                "segments": saved_segments + [_dump_raw_segment(seg) for seg in raw_segments],
+                "resume_from": last_end,
+                "language": str(getattr(info, "language", "") or language_hint or ""),
+            },
+        )
+
     try:
         for seg in segments_iter:
             if ctx.cancel_event.is_set():
                 raise CancelledError()
+            try:
+                ctx.wait_if_paused()
+            except PauseRelease:
+                save_progress()
+                raise
             raw_segments.append(seg)
-            if duration > 0:
+            if len(raw_segments) % 20 == 0:
+                save_progress()
+            if total_duration > 0:
                 ctx.emit(
                     "progress",
                     step="asr",
-                    done=min(float(seg.end), duration),
-                    total=duration,
-                    message=f"已识别 {format_clock(seg.end)} / {format_clock(duration)}",
+                    done=min(offset + float(seg.end), total_duration),
+                    total=total_duration,
+                    message=(
+                        f"已识别 {format_clock(offset + seg.end)} / {format_clock(total_duration)}"
+                    ),
                 )
     except RuntimeError as exc:
         raise _wrap_gpu_error(exc) from exc
 
-    kept = [
-        seg
-        for seg in raw_segments
-        if not (settings.filter_hallucinations and is_hallucination(seg.text, seg.start, seg.end))
-    ]
-    dropped = len(raw_segments) - len(kept)
-    if dropped:
-        ctx.log.info("过滤疑似幻听片段 %d 个", dropped)
-
-    detected = str(getattr(info, "language", "") or "")
+    detected = str(getattr(info, "language", "") or "") or language_hint
     if detected:
         ctx.log.info(
             "识别语言：%s（置信度 %.2f）",
@@ -275,10 +399,34 @@ def transcribe(ctx: RunContext, wav: Path) -> AsrResult:
             getattr(info, "language_probability", 0.0),
         )
 
+    result = _build_result(ctx, settings, saved_segments, raw_segments, detected)
+    clear_checkpoint(partial_path)
+    ctx.artifact("audio.resume.wav").unlink(missing_ok=True)
+    return result
+
+
+def _build_result(
+    ctx: RunContext,
+    settings: AsrSettings,
+    saved_segments: list[dict],
+    raw_segments: list[Any],
+    language: str,
+) -> AsrResult:
+    """合并「检查点段 + 本轮新段」：幻觉过滤（仅新段）→ 段落合并 → AsrResult。"""
+    kept: list[Any] = [_load_raw_segment(item) for item in saved_segments]
+    for seg in raw_segments:
+        if settings.filter_hallucinations and is_hallucination(seg.text, seg.start, seg.end):
+            continue
+        kept.append(seg)
+    dropped = len(raw_segments) - (len(kept) - len(saved_segments))
+    if dropped:
+        ctx.log.info("过滤疑似幻听片段 %d 个", dropped)
+    merged = merge_segments(kept)
+    duration = merged[-1].end if merged else None
     return AsrResult(
         engine="faster-whisper",
-        model=model_reference,
-        language=detected or language or "auto",
-        duration_sec=duration or None,
-        segments=merge_segments(kept),
+        model=resolve_model_reference(settings.model),
+        language=language or "auto",
+        duration_sec=duration,
+        segments=merged,
     )

@@ -12,6 +12,7 @@ import os
 import re
 from typing import TYPE_CHECKING, Any
 
+from .errors import PauseRelease
 from .llm.client import LlmClient
 from .llm.prompts import (
     MAP_SYSTEM,
@@ -20,6 +21,7 @@ from .llm.prompts import (
     reduce_summary_prompt,
 )
 from .models import Chapter, FigureHint, KeyPoint, RefineResult, SummaryResult
+from .utils.checkpoint import clear_checkpoint, load_checkpoint, save_checkpoint
 from .utils.text import chunk_by_chars
 
 if TYPE_CHECKING:
@@ -141,10 +143,25 @@ def summarize(
     )
     total = len(chunks)
 
-    # ---- map：逐块提炼要点 ----
-    points: list[dict[str, Any]] = []
+    # ---- map：逐块提炼要点（带检查点，可暂停续跑） ----
+    partial_path = ctx.artifact("summarize.partial.json")
+    partial = load_checkpoint(partial_path) or {}
+    points: list[dict[str, Any]] = [
+        item for item in (partial.get("points") or []) if isinstance(item, dict)
+    ]
+    map_done = int(partial.get("map_done") or 0)
+    if map_done:
+        ctx.log.info("检测到摘要检查点：map 已完成 %d/%d 块", map_done, total)
+
     for position, chunk in enumerate(chunks, start=1):
+        if position <= map_done:
+            continue  # 该块已完成（续跑跳过）
         ctx.raise_if_cancelled()
+        try:
+            ctx.wait_if_paused()
+        except PauseRelease:
+            save_checkpoint(partial_path, {"points": points, "map_done": position - 1})
+            raise
         ctx.emit(
             "progress",
             step="summarize",
@@ -159,6 +176,7 @@ def summarize(
         for item in payload.get("points") or []:
             if isinstance(item, dict) and str(item.get("text") or "").strip():
                 points.append({"text": str(item["text"]).strip(), "anchor": item.get("anchor")})
+        save_checkpoint(partial_path, {"points": points, "map_done": position})
     if not points:
         ctx.log.warning("map 阶段未提炼到任何要点，摘要将可能为空")
     anchored = sum(1 for point in points if _normalize_anchor(point.get("anchor")) is not None)
@@ -175,6 +193,12 @@ def summarize(
         total=total + 1,
         message="汇总为结论与要点…",
     )
+    ctx.raise_if_cancelled()
+    try:
+        ctx.wait_if_paused()
+    except PauseRelease:
+        save_checkpoint(partial_path, {"points": points, "map_done": total})
+        raise
 
     # ---- reduce：合并去重 ----
     chapters_hint = ""
@@ -291,6 +315,7 @@ def summarize(
             kept += len(chapter.figures)
 
     ctx.emit("progress", step="summarize", done=total + 1, total=total + 1, message="摘要完成")
+    clear_checkpoint(partial_path)
     return (
         SummaryResult(
             model=model,

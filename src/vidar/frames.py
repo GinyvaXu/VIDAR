@@ -276,6 +276,7 @@ def _extract_many(
     total = len(points)
     for position, (start, caption, kind, point_index) in enumerate(points, start=1):
         ctx.raise_if_cancelled()
+        ctx.wait_if_paused()  # 段间暂停点（抽帧无检查点：重跑成本低）
         if start - last_time < min_gap:
             ctx.log.info("跳过过近的%s（%.0fs 间隔不足）", phase, start - last_time)
             continue

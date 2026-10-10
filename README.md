@@ -46,7 +46,9 @@ BV链接 → 解析视频信息 → 下载（仅音频） → 语音识别（ASR
 - 🔍 **排版预览窗口**：GUI 内嵌 PDF 预览 + 参数面板，改完即渲染，反复调试到满意再导出（CLI：`vidar pdf` / `vidar epub`）
 - 🖥️ **现代界面**：侧边栏四页（任务 / 历史 / 模型 / 关于）+ 卡片式布局 + 明暗双主题 + 全套图标（PySide6 自绘，[暗色版截图](docs/images/gui-dark.png)）
 - 📦 **模型管理**：按显存推荐档位、一键下载（进度/速度/断点续传/校验），GUI 与 CLI 同一服务层
-- 🔁 **断点续跑**：9 步状态机，取消/崩溃后随时续传，已完成步骤自动跳过
+- 🔁 **断点续跑**：10 步状态机，取消/崩溃后随时续传，已完成步骤自动跳过
+- ⏸ **暂停 / 继续 / 释放显存**：ASR 段间挂起、LLM 请求块间挂起；释放显存后从检查点续跑
+  （ASR 切片续识别、refine/translate/summarize 按块续跑），历史页一键继续或从任意步骤重跑
 - 📦 **便携版**：GUI + CLI 双 exe，主包约 250MB；N 卡一键接入 GPU（`VIDAR-CLI.exe gpu install`）
 - 🔌 **模型自由**：任意 OpenAI 兼容 LLM（OpenCode Go / DeepSeek / SiliconFlow / Ollama…）
 

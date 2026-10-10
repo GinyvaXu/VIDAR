@@ -56,3 +56,12 @@ class CancelledError(VidarError):
 
     def __init__(self, message: str = "任务已取消") -> None:
         super().__init__(message, hint="已完成步骤不会丢失，重跑将从中断处继续")
+
+
+class PauseRelease(Exception):
+    """控制流信号（非错误）：暂停并释放资源。
+
+    由 `RunContext.wait_if_paused()` 在检查点抛出：步骤应先把进度写入
+    检查点文件（*.partial.json）再让它向上传播；运行器收到后把当前步骤
+    标记为「已暂停（可续跑）」并干净地结束本次运行。
+    """

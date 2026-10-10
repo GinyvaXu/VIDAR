@@ -5,12 +5,13 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import threading
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from ..config import Settings
-from ..errors import CancelledError
+from ..errors import CancelledError, PauseRelease
 from ..logging_setup import get_logger
 from ..models import VideoMeta
 from ..utils.text import parse_bvid
@@ -47,6 +48,8 @@ class RunContext:
 
         # 取消与事件（GUI / CLI 进度展示用）
         self.cancel_event = threading.Event()
+        self.pause_event = threading.Event()  # set = 已暂停
+        self.release_event = threading.Event()  # set = 请求释放资源（配合暂停）
         self.on_event: Callable[[str, dict[str, Any]], None] | None = None
 
     # ------------------------------------------------------------------ #
@@ -58,11 +61,44 @@ class RunContext:
 
     def cancel(self) -> None:
         self.cancel_event.set()
+        self.pause_event.clear()  # 取消时唤醒暂停等待
         self.emit("cancelled")
 
     def raise_if_cancelled(self) -> None:
         if self.cancel_event.is_set():
             raise CancelledError()
+
+    # ---- 暂停 / 继续 / 释放资源 ----
+    def pause(self) -> None:
+        """请求暂停：在当前检查点（段/请求块边界）挂起。"""
+        if self.cancel_event.is_set():
+            return
+        self.pause_event.set()
+        self.emit("paused")
+
+    def resume(self) -> None:
+        """继续运行。"""
+        self.release_event.clear()
+        self.pause_event.clear()
+        self.emit("resumed")
+
+    def release_resources(self) -> None:
+        """暂停状态下释放资源（模型/显存）：当前步骤从检查点退出，标记为可续跑。"""
+        self.release_event.set()
+        self.pause_event.clear()  # 唤醒等待线程，统一走释放分支
+
+    @property
+    def paused(self) -> bool:
+        return self.pause_event.is_set()
+
+    def wait_if_paused(self) -> None:
+        """检查点：暂停时挂起；请求释放时抛 PauseRelease（由调用方保存检查点后向上传播）。"""
+        while self.pause_event.is_set():
+            if self.cancel_event.is_set():
+                raise CancelledError()
+            time.sleep(0.1)
+        if self.release_event.is_set():
+            raise PauseRelease()
 
     # ------------------------------------------------------------------ #
     def artifact(self, name: str) -> Path:

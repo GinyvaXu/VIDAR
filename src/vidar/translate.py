@@ -14,9 +14,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from .errors import PauseRelease
 from .llm.client import LlmClient
 from .llm.prompts import TRANSLATE_SYSTEM, translate_prompt
 from .models import RefineResult, TranslatedSegment, TranslateResult
+from .utils.checkpoint import clear_checkpoint, load_checkpoint, save_checkpoint
 from .utils.text import chunk_by_chars
 
 if TYPE_CHECKING:
@@ -120,8 +122,25 @@ def translate_segments(
     )
 
     translated: dict[int, str] = {}
+    partial_path = ctx.artifact("translate.partial.json")
+    partial = load_checkpoint(partial_path) or {}
+    translated = {
+        int(key): str(value)
+        for key, value in (partial.get("translated") or {}).items()
+        if str(value).strip()
+    }
+    if translated:
+        ctx.log.info("检测到翻译检查点：已完成 %d 段，续跑中", len(translated))
+
     for position, chunk in enumerate(chunks, start=1):
+        if all(seg.idx in translated for seg in chunk):
+            continue  # 该块已完成（续跑跳过）
         ctx.raise_if_cancelled()
+        try:
+            ctx.wait_if_paused()
+        except PauseRelease:
+            save_checkpoint(partial_path, {"translated": translated})
+            raise
         numbered = "\n".join(f"[{seg.idx}] {seg.refined_text}" for seg in chunk)
         ctx.emit(
             "progress",
@@ -151,12 +170,14 @@ def translate_segments(
                 ctx.log.warning("缺段补充请求失败：%s", exc)
         for seg in chunk:
             translated[seg.idx] = got.get(seg.idx, "")
+        save_checkpoint(partial_path, {"translated": translated})
 
     blank = sum(1 for seg in refine.segments if not translated.get(seg.idx))
     if blank:
         ctx.log.warning("有 %d 段未获得译文（将回退显示原文）", blank)
 
     ctx.emit("progress", step="translate", done=total, total=total, message="翻译完成")
+    clear_checkpoint(partial_path)
     return TranslateResult(
         model=model,
         source_language=normalize_language(source_language) or source_language,

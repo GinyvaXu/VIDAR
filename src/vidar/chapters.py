@@ -53,6 +53,8 @@ def build_chapters(ctx: RunContext, refine: RefineResult) -> tuple[list[Chapter]
     duration = refine.segments[-1].end if refine.segments else 0.0
 
     ctx.emit("progress", step="chapters", done=0, total=1, message="请求章节切分…")
+    ctx.raise_if_cancelled()
+    ctx.wait_if_paused()  # 请求前暂停点（单次请求，无检查点）
     paragraphs = "\n".join(f"[{seg.idx}] {seg.refined_text}" for seg in refine.segments)
     try:
         payload = client.complete_json(

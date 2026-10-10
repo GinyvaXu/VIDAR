@@ -1,9 +1,10 @@
 """Step 协议与顺序执行器。
 
 执行语义：
-- 按声明顺序执行 8 个步骤；
+- 按声明顺序执行全部步骤；
 - done 且产物完整的步骤自动跳过（断点续跑）；
 - --from <step> 会把该步骤及其后续全部重置后重跑；
+- 支持暂停/继续：检查点挂起；「释放资源」时当前步骤从检查点退出（标记为可续跑），运行干净结束；
 - 每步执行前后更新 state.json，失败不破坏已完成产物。
 """
 
@@ -15,7 +16,7 @@ from typing import Protocol
 from rich.console import Console
 from rich.table import Table
 
-from ..errors import CancelledError, MilestoneError, VidarError
+from ..errors import CancelledError, MilestoneError, PauseRelease, VidarError
 from ..models import StepStatus
 from .context import RunContext
 
@@ -72,7 +73,8 @@ class PipelineRunner:
         from_step: str | None = None,
         to_step: str | None = None,
         dry_run: bool = False,
-    ) -> None:
+    ) -> str:
+        """执行选中步骤；返回 'finished' | 'paused' | 'dry-run'。"""
         selected = self.select(from_step, to_step)
         if from_step:
             reset = self.ctx.state.reset_from(from_step, self.order)
@@ -82,7 +84,7 @@ class PipelineRunner:
         self.render_plan(selected)
         if dry_run:
             console.print("[dim]--dry-run：仅展示计划，未执行任何操作[/dim]")
-            return
+            return "dry-run"
 
         for step in selected:
             self.ctx.raise_if_cancelled()
@@ -90,8 +92,19 @@ class PipelineRunner:
                 self.ctx.log.info("跳过 %s（已完成）", step.name)
                 self.ctx.emit("step_skipped", step=step.name, title=step.title)
                 continue
-            self._run_step(step)
+            # 步骤之间的暂停点（含「释放资源」：直接干净结束，不标记任何步骤）
+            try:
+                self.ctx.wait_if_paused()
+            except PauseRelease:
+                self.ctx.emit("run_paused", step=step.name)
+                return "paused"
+            try:
+                self._run_step(step)
+            except PauseRelease:
+                self.ctx.emit("run_paused", step=step.name)
+                return "paused"
         self.ctx.emit("run_finished")
+        return "finished"
 
     def _run_step(self, step: Step) -> None:
         self.ctx.state.mark_running(step.name)
@@ -100,6 +113,10 @@ class PipelineRunner:
         self.ctx.log.info("开始 %s（%s）", step.name, step.title)
         try:
             artifacts = step.run(self.ctx)
+        except PauseRelease:
+            self.ctx.state.mark_pending(step.name, "已暂停（可续跑）")
+            self.ctx.emit("step_paused", step=step.name, title=step.title)
+            raise
         except CancelledError as exc:
             self.ctx.state.mark_pending(step.name, "已取消")
             self.ctx.emit("step_cancelled", step=step.name, title=step.title)

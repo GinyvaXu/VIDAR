@@ -125,8 +125,11 @@ class PipelineWorker(QThread):
             ctx = RunContext(self._settings, self._source)
             self.ctx = ctx
             ctx.on_event = lambda event, data: self.event.emit(event, data)
-            PipelineRunner(ctx, default_steps()).run(from_step=self._from_step)  # type: ignore[arg-type]
-            self.ok.emit()
+            status = PipelineRunner(ctx, default_steps()).run(from_step=self._from_step)  # type: ignore[arg-type]
+            if status == "paused":
+                self.event.emit("run_paused", {})
+            else:
+                self.ok.emit()
         except CancelledError:
             self.event.emit("cancelled", {})
         except VidarError as exc:
@@ -137,6 +140,18 @@ class PipelineWorker(QThread):
     def cancel(self) -> None:
         if self.ctx is not None:
             self.ctx.cancel()
+
+    def pause(self) -> None:
+        if self.ctx is not None:
+            self.ctx.pause()
+
+    def resume(self) -> None:
+        if self.ctx is not None:
+            self.ctx.resume()
+
+    def release_resources(self) -> None:
+        if self.ctx is not None:
+            self.ctx.release_resources()
 
 
 class ModelDownloadWorker(QThread):
@@ -331,9 +346,21 @@ class MainWindow(QMainWindow):
         self.progress = QProgressBar()
         self.progress.setRange(0, 1000)
         self.progress.setValue(0)
+        self.pause_btn = QPushButton("暂停")
+        self.pause_btn.setIconSize(QSize(16, 16))
+        self.pause_btn.setVisible(False)
+        self.resume_btn = QPushButton("继续")
+        self.resume_btn.setIconSize(QSize(16, 16))
+        self.resume_btn.setVisible(False)
+        self.release_btn = QPushButton("释放显存")
+        self.release_btn.setIconSize(QSize(16, 16))
+        self.release_btn.setVisible(False)
         self.status_label = QLabel("就绪")
         self.status_label.setObjectName("Muted")
         progress_row.addWidget(self.progress, 1)
+        progress_row.addWidget(self.pause_btn)
+        progress_row.addWidget(self.resume_btn)
+        progress_row.addWidget(self.release_btn)
         progress_row.addWidget(self.status_label)
         progress_layout.addLayout(progress_row)
 
@@ -361,6 +388,9 @@ class MainWindow(QMainWindow):
 
         self.start_btn.clicked.connect(self._start)
         self.cancel_btn.clicked.connect(self._cancel)
+        self.pause_btn.clicked.connect(self._pause)
+        self.resume_btn.clicked.connect(self._resume)
+        self.release_btn.clicked.connect(self._release_resources)
         self.open_out_btn.clicked.connect(lambda: self._open_result(notes=False))
         self.open_notes_btn.clicked.connect(lambda: self._open_result(notes=True))
         self.preview_btn.clicked.connect(self._open_preview)
@@ -374,23 +404,28 @@ class MainWindow(QMainWindow):
         layout.setSpacing(14)
         layout.addLayout(
             self._page_header(
-                "历史", "双击任务可载入并定位到未完成步骤；已完成的任务重跑会自动跳过"
+                "历史",
+                "每个任务都记住进度：一键「继续」自动定位未完成步骤，或在步骤明细里点任意步骤「从此步重跑」",
             )
         )
 
         card, card_layout = _card()
         self.history = QListWidget()
         self.history.itemDoubleClicked.connect(self._load_history_item)
+        self.history.currentItemChanged.connect(self._on_history_selected)
         card_layout.addWidget(self.history, 1)
 
         row = QHBoxLayout()
-        self.history_load_btn = QPushButton("载入并续跑")
+        self.history_resume_btn = QPushButton("继续（自动定位未完成）")
+        self.history_resume_btn.setObjectName("Primary")
+        self.history_rerun_btn = QPushButton("从选中步骤重跑")
         self.history_open_out_btn = QPushButton("打开输出目录")
         self.history_open_notes_btn = QPushButton("打开文稿")
         self.history_preview_btn = QPushButton("预览排版…")
         self.history_refresh_btn = QPushButton("刷新")
         for button in (
-            self.history_load_btn,
+            self.history_resume_btn,
+            self.history_rerun_btn,
             self.history_open_out_btn,
             self.history_open_notes_btn,
             self.history_preview_btn,
@@ -402,7 +437,24 @@ class MainWindow(QMainWindow):
         card_layout.addLayout(row)
         layout.addWidget(card, 1)
 
-        self.history_load_btn.clicked.connect(self._load_selected_history)
+        detail_card, detail_layout = _card()
+        detail_title = QLabel("步骤明细（选中任务后显示；选中一行即可「从选中步骤重跑」）")
+        detail_title.setObjectName("CardTitle")
+        detail_layout.addWidget(detail_title)
+        self.history_detail = QTableWidget(0, 3)
+        self.history_detail.setHorizontalHeaderLabels(["步骤", "内容", "状态"])
+        self.history_detail.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.history_detail.verticalHeader().setVisible(False)
+        self.history_detail.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.history_detail.setSelectionBehavior(QTableWidget.SelectRows)
+        self.history_detail.setSelectionMode(QTableWidget.SingleSelection)
+        self.history_detail.setShowGrid(False)
+        self.history_detail.setFixedHeight(230)
+        detail_layout.addWidget(self.history_detail)
+        layout.addWidget(detail_card)
+
+        self.history_resume_btn.clicked.connect(self._history_resume)
+        self.history_rerun_btn.clicked.connect(self._history_rerun_from_selected)
         self.history_open_out_btn.clicked.connect(lambda: self._open_result(notes=False))
         self.history_open_notes_btn.clicked.connect(lambda: self._open_result(notes=True))
         self.history_preview_btn.clicked.connect(self._open_preview)
@@ -567,10 +619,14 @@ class MainWindow(QMainWindow):
         self.settings_btn.setIcon(theme.icon("settings", colors["text_muted"], size=16))
         self.start_btn.setIcon(theme.icon("rocket", "#FFFFFF", size=16))
         self.cancel_btn.setIcon(theme.icon("square", colors["text"], size=16))
+        self.pause_btn.setIcon(theme.icon("pause", colors["text"], size=16))
+        self.resume_btn.setIcon(theme.icon("play", colors["text"], size=16))
+        self.release_btn.setIcon(theme.icon("hard-drive", colors["text_muted"], size=16))
         self.open_out_btn.setIcon(theme.icon("folder-open", colors["text"], size=16))
         self.open_notes_btn.setIcon(theme.icon("file-text", colors["text"], size=16))
         self.preview_btn.setIcon(theme.icon("eye", colors["text"], size=16))
-        self.history_load_btn.setIcon(theme.icon("play", colors["text"], size=16))
+        self.history_resume_btn.setIcon(theme.icon("play", "#FFFFFF", size=16))
+        self.history_rerun_btn.setIcon(theme.icon("refresh-cw", colors["text"], size=16))
         self.history_open_out_btn.setIcon(theme.icon("folder-open", colors["text"], size=16))
         self.history_open_notes_btn.setIcon(theme.icon("file-text", colors["text"], size=16))
         self.history_preview_btn.setIcon(theme.icon("eye", colors["text"], size=16))
@@ -634,6 +690,37 @@ class MainWindow(QMainWindow):
         self.cancel_btn.setEnabled(running)
         self.url_edit.setEnabled(not running)
         self.from_combo.setEnabled(not running)
+        self.pause_btn.setVisible(running)
+        self.pause_btn.setEnabled(running)
+        self.resume_btn.setVisible(False)
+        self.release_btn.setVisible(False)
+        self.release_btn.setEnabled(True)
+
+    def _pause(self) -> None:
+        if self.worker is None or not self.worker.isRunning():
+            return
+        self.worker.pause()
+        self.pause_btn.setVisible(False)
+        self.resume_btn.setVisible(True)
+        self.release_btn.setVisible(True)
+        self.release_btn.setEnabled(True)
+        self.status_label.setText("已暂停")
+
+    def _resume(self) -> None:
+        if self.worker is None:
+            return
+        self.worker.resume()
+        self.resume_btn.setVisible(False)
+        self.release_btn.setVisible(False)
+        self.pause_btn.setVisible(True)
+        self.status_label.setText("继续运行…")
+
+    def _release_resources(self) -> None:
+        if self.worker is None:
+            return
+        self.release_btn.setEnabled(False)
+        self.status_label.setText("正在释放资源（当前步骤保存检查点后退出）…")
+        self.worker.release_resources()
 
     # ------------------------------------------------------------------ #
     # 事件与日志
@@ -661,6 +748,15 @@ class MainWindow(QMainWindow):
         elif event == "step_failed":
             self._set_step_status(step, "失败 ✗")
             self._append_log(f"步骤 [{step}] 失败：{data.get('error', '')}")
+        elif event == "paused":
+            self.status_label.setText("已暂停（可「继续」；或「释放显存」后从历史页续跑）")
+        elif event == "resumed":
+            self.status_label.setText("继续运行…")
+        elif event == "step_paused":
+            self._append_log(f"步骤 [{step}] 已保存检查点并暂停（可继续）")
+        elif event == "run_paused":
+            self.status_label.setText("已暂停并释放资源：历史页可一键「继续」")
+            self._append_log("运行已暂停：检查点已保存，继续时不会重跑已完成部分")
         elif event == "run_finished":
             self.status_label.setText("全部完成")
             self._append_log("全部步骤完成。")
@@ -739,14 +835,30 @@ class MainWindow(QMainWindow):
                     url = str(meta.get("url") or "")
                 except (ValueError, OSError):
                     pass
+            paused_step = next(
+                (
+                    name
+                    for name, rec in steps.items()
+                    if rec.get("status") == "pending" and "已暂停" in str(rec.get("error") or "")
+                ),
+                None,
+            )
+            colors = theme.palette(self.theme_name)
             if failed:
                 suffix = f"失败于 {failed[0]}"
+                icon_name, icon_color = "triangle-alert", colors["danger"]
+            elif paused_step:
+                suffix = f"已暂停（{paused_step}）"
+                icon_name, icon_color = "pause", colors["warning"]
             elif done >= len(STEP_ORDER):
                 suffix = "全部完成"
+                icon_name, icon_color = "circle-check", colors["success"]
             else:
-                suffix = f"{done}/{len(STEP_ORDER)}"
+                suffix = f"{done}/{len(STEP_ORDER)} 步"
+                icon_name, icon_color = "play", colors["text_muted"]
             item = QListWidgetItem(f"{folder.name} · {title or '（未解析）'} · {suffix}")
             item.setData(Qt.UserRole, {"key": folder.name, "url": url or folder.name})
+            item.setIcon(theme.icon(icon_name, icon_color, size=16))
             self.history.addItem(item)
 
     def _load_selected_history(self) -> None:
@@ -755,6 +867,112 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "提示", "先在列表里选一条任务")
             return
         self._load_history_item(item)
+
+    # ---- 进度记忆：步骤明细 / 继续 / 从某步重跑 ----
+    def _on_history_selected(self, current, _previous=None) -> None:  # noqa: ANN001
+        if current is None:
+            self.history_detail.setRowCount(0)
+            return
+        key = str((current.data(Qt.UserRole) or {}).get("key") or "")
+        self._load_history_detail(key)
+
+    def _history_state(self, key: str) -> dict:
+        state_path = resolve_path(self.settings.paths.work_dir) / key / "state.json"
+        if not state_path.exists():
+            return {}
+        try:
+            payload = json.loads(state_path.read_text(encoding="utf-8"))
+        except (ValueError, OSError):
+            return {}
+        steps = payload.get("steps")
+        return steps if isinstance(steps, dict) else {}
+
+    def _load_history_detail(self, key: str) -> None:
+        self.history_detail.setRowCount(0)
+        steps = self._history_state(key)
+        labels = {"done": "完成 ✓", "failed": "失败 ✗", "running": "运行中…", "pending": "等待"}
+        for name in STEP_ORDER:
+            record = steps.get(name) or {}
+            status = str(record.get("status") or "")
+            note = str(record.get("error") or "")
+            label = labels.get(status, "—")
+            if status == "pending" and note:
+                label = f"待续（{note}）"
+            elif status == "failed" and note:
+                label = f"失败（{note[:40]}）"
+            row = self.history_detail.rowCount()
+            self.history_detail.insertRow(row)
+            self.history_detail.setItem(row, 0, QTableWidgetItem(name))
+            self.history_detail.setItem(row, 1, QTableWidgetItem(_STEP_TITLES.get(name, "")))
+            self.history_detail.setItem(row, 2, QTableWidgetItem(label))
+        # 默认选中第一个未完成步骤
+        for row in range(self.history_detail.rowCount()):
+            item = self.history_detail.item(row, 0)
+            if item is None:
+                continue
+            status = str((steps.get(item.text()) or {}).get("status") or "")
+            if status != "done":
+                self.history_detail.selectRow(row)
+                break
+
+    def _selected_history_source(self) -> tuple[str, str]:
+        item = self.history.currentItem()
+        if item is None:
+            return "", ""
+        data = item.data(Qt.UserRole) or {}
+        return str(data.get("key") or ""), str(data.get("url") or data.get("key") or "")
+
+    def _history_resume(self) -> None:
+        key, source = self._selected_history_source()
+        if not key:
+            QMessageBox.information(self, "提示", "先在列表里选一条任务")
+            return
+        if self.worker is not None and self.worker.isRunning():
+            QMessageBox.information(self, "提示", "已有任务在运行")
+            return
+        from_step = self._first_unfinished_step(key)
+        if from_step is None:
+            QMessageBox.information(
+                self, "提示", "该任务已全部完成；可用「从选中步骤重跑」强制重算某一步"
+            )
+            return
+        self._append_log(f"继续任务 {key}：从 {from_step} 步骤续跑")
+        self._start_with(source, from_step)
+
+    def _history_rerun_from_selected(self) -> None:
+        key, source = self._selected_history_source()
+        if not key:
+            QMessageBox.information(self, "提示", "先在列表里选一条任务")
+            return
+        if self.worker is not None and self.worker.isRunning():
+            QMessageBox.information(self, "提示", "已有任务在运行")
+            return
+        row = self.history_detail.currentRow()
+        if row < 0:
+            QMessageBox.information(self, "提示", "先在「步骤明细」里选一个步骤")
+            return
+        item = self.history_detail.item(row, 0)
+        step = item.text() if item is not None else ""
+        if step not in STEP_ORDER:
+            return
+        index = STEP_ORDER.index(step)
+        affected = "、".join(STEP_ORDER[index:])
+        answer = QMessageBox.question(
+            self,
+            "从该步重跑",
+            f"将从「{step}」重跑，以下步骤会重新计算：\n{affected}\n\n继续？",
+        )
+        if answer != QMessageBox.Yes:
+            return
+        self._append_log(f"重跑任务 {key}：从 {step} 步骤开始（后续步骤将重算）")
+        self._start_with(source, step)
+
+    def _start_with(self, source: str, from_step: str | None) -> None:
+        self.url_edit.setText(source)
+        index = STEP_ORDER.index(from_step) + 1 if from_step in STEP_ORDER else 0
+        self.from_combo.setCurrentIndex(index)
+        self.nav.setCurrentRow(0)
+        self._start()
 
     def _load_history_item(self, item: QListWidgetItem) -> None:
         data = item.data(Qt.UserRole) or {}
