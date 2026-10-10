@@ -95,7 +95,6 @@ def reduce_summary_prompt(points_json: str, chapters_hint: str = "") -> str:
 
 TRANSLATE_SYSTEM = "你是一名专业字幕翻译，忠实、通顺、口语自然；只输出 JSON，不输出解释。"
 
-
 def translate_prompt(
     numbered_paragraphs: str,
     source_language: str,
@@ -116,3 +115,37 @@ def translate_prompt(
 
 文稿：
 {numbered_paragraphs}"""
+
+
+PARAGRAPHS_SYSTEM = (
+    "你是一名中文文章编辑，擅长把零散句子组织成自然、连贯的语段（自然段）。"
+    "你只调整分段，不改写任何文字。"
+)
+
+
+def paragraphs_prompt(
+    numbered_sentences: str,
+    *,
+    min_chars: int = 60,
+    max_chars: int = 260,
+    strict: bool = False,
+) -> str:
+    """语段编辑：只决定「哪些句子合成一段」，输出 JSON。"""
+    strict_part = (
+        "\n5. 必须覆盖全部段号：从第一句到最后一句，连续、不重、不漏。"
+        if strict
+        else ""
+    )
+    return f"""下面是一篇文稿的句子清单（每句以 [段号] 开头，按顺序排列）。
+请把它们组织成自然段（语段）—— 只决定哪些句子合成一段。
+
+规则：
+1. 语义完整：同一话题 / 同一层意思的句子合成一段；话题切换处才分段。
+2. 长度适中：每段约 {min_chars}–{max_chars} 字（中文）；
+   避免两三句的超短段，也避免超过 {max_chars + 80} 字的超长段。
+3. 保持顺序、不丢句、不重复；段号必须连续覆盖全部句子。
+4. 只输出 JSON，不要解释，不要改写句子内容。{strict_part}
+输出 JSON：{{"paragraphs": [{{"start_index": 起始段号, "end_index": 结束段号}}, ...]}}
+
+句子清单：
+{numbered_sentences}"""

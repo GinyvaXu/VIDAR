@@ -43,6 +43,13 @@ class _FakeLlmClient:
             match = re.search(r"^\[(\d+)\]", prompt, re.MULTILINE)
             start = int(match.group(1)) if match else 0
             return {"chapters": [{"title": "开场", "start_index": start}]}
+        if '"paragraphs"' in prompt:  # paragraphs：每 2 句一段
+            indices = [int(m.group(1)) for m in re.finditer(r"^\[(\d+)\]", prompt, re.MULTILINE)]
+            groups = []
+            for i in range(0, len(indices), 2):
+                chunk = indices[i : i + 2]
+                groups.append({"start_index": chunk[0], "end_index": chunk[-1]})
+            return {"paragraphs": groups}
         if '"points"' in prompt:  # map
             match = re.search(r"^\[(\d+)\]", prompt, re.MULTILINE)
             return {"points": [{"text": "片段要点", "anchor": int(match.group(1)) if match else 0}]}
@@ -74,7 +81,12 @@ def _make_context(monkeypatch, tmp_path: Path) -> RunContext:  # noqa: ANN001
     )
     ctx.save_meta(meta)
     ctx.artifact("asr.json").write_text(asr.model_dump_json(), encoding="utf-8")
-    for module in ("vidar.refine", "vidar.chapters", "vidar.summarize"):
+    for module in (
+        "vidar.refine",
+        "vidar.chapters",
+        "vidar.summarize",
+        "vidar.paragraphs",
+    ):
         monkeypatch.setattr(f"{module}.LlmClient", _FakeLlmClient)
     return ctx
 
@@ -87,6 +99,7 @@ def test_m2_end_to_end_with_fake_llm(monkeypatch, tmp_path: Path) -> None:
     assert (ctx.work_dir / "refine.json").exists()
     assert (ctx.work_dir / "chapters.json").exists()
     assert (ctx.work_dir / "summary.json").exists()
+    assert (ctx.work_dir / "paragraphs.json").exists()
 
     notes_files = list((tmp_path / "output").glob("*/笔记版-*.md"))
     assert notes_files, "笔记版 Markdown 未生成"

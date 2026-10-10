@@ -57,10 +57,20 @@ def _heading(document, text: str, *, size: float = 13.5) -> None:  # noqa: ANN00
     _run(paragraph, text, east=EAST_HEAD, latin=LATIN_HEAD, size=size, bold=True)
 
 
-def _body(document, text: str, *, size: float = 10.5, gray: bool = False, indent: float = 0.0):
+def _body(
+    document,
+    text: str,
+    *,
+    size: float = 10.5,
+    gray: bool = False,
+    indent: float = 0.0,
+    first_line: float = 0.0,
+):  # noqa: ANN001, ANN202
     paragraph = document.add_paragraph()
     if indent:
         paragraph.paragraph_format.left_indent = Cm(indent)
+    if first_line:
+        paragraph.paragraph_format.first_line_indent = Pt(first_line)
     _run(paragraph, text, size=size, color=GRAY if gray else None)
     return paragraph
 
@@ -145,10 +155,11 @@ def build_docx(data: DocData, output_path: Path) -> Path:
         if data.mode == "full":
             for seg_start, text, source in data.chapter_paragraphs(chapter):
                 paragraph = document.add_paragraph()
+                paragraph.paragraph_format.first_line_indent = Pt(21)  # 首行缩进两格
                 _run(paragraph, text)
                 _run(paragraph, f"　[{format_clock(seg_start)}]", size=8, color=GRAY)
                 if source:
-                    _body(document, source, size=9, gray=True, indent=0.5)
+                    _body(document, source, size=9, gray=True, indent=0.5, first_line=18)
 
     trailer = document.add_paragraph()
     _run(

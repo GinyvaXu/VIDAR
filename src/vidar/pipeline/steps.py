@@ -1,5 +1,5 @@
-"""10 个流水线步骤：resolve → download → audio → asr → refine → translate
-→ chapters → summarize → frames → export。"""
+"""11 个流水线步骤：resolve → download → audio → asr → refine → translate
+→ chapters → summarize → paragraphs → frames → export。"""
 
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ from ..errors import DependencyError, NetworkError, VidarError
 from ..export import export_outputs
 from ..frames import extract_figures
 from ..models import AsrResult, Chapter, RefineResult, SummaryResult, VideoMeta
+from ..paragraphs import build_paragraphs
 from ..refine import refine_asr_result
 from ..render import render_asr_transcript, render_refined_transcript
 from ..source import extract_page, normalize_source
@@ -283,6 +284,27 @@ class SummarizeStep:
         return {"summary": "summary.json"}
 
 
+class ParagraphsStep:
+    """语段编辑（LLM）：把零散句子编成自然段（只决定边界，不改写文字）。"""
+
+    name = "paragraphs"
+    title = "语段编辑（LLM）"
+    milestone: str | None = None
+
+    def run(self, ctx: RunContext) -> dict[str, str]:
+        stale = ctx.artifact("paragraphs.json")
+        if not ctx.settings.paragraph.enabled:
+            ctx.log.info("语段编辑已关闭（paragraph.enabled=false），跳过")
+            stale.unlink(missing_ok=True)
+            return {}
+        refine = _load_json_model(ctx, "refine.json", RefineResult)
+        translation = load_translation(ctx)
+        result = build_paragraphs(ctx, refine, translation)
+        stale.write_text(result.model_dump_json(indent=2), encoding="utf-8")
+        ctx.log.info("语段编辑完成：%d 段", len(result.paragraphs))
+        return {"paragraphs": "paragraphs.json"}
+
+
 class FramesStep:
     """关键帧截图：下载低清视频，按 LLM 锚点抽帧（供 Word/PDF 配图）。"""
 
@@ -335,6 +357,7 @@ def default_steps() -> list[object]:
         TranslateStep(),
         ChaptersStep(),
         SummarizeStep(),
+        ParagraphsStep(),
         FramesStep(),
         ExportStep(),
     ]
@@ -349,6 +372,7 @@ STEP_ORDER = [
     "translate",
     "chapters",
     "summarize",
+    "paragraphs",
     "frames",
     "export",
 ]

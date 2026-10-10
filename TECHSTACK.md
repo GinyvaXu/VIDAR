@@ -52,6 +52,13 @@
 - **技术手段**：threading.Event + PauseRelease 控制流异常；`utils/checkpoint.py` 统一读写；
   暂停粒度 = 段/请求块边界（1-2 秒内生效）；模型驻留内存，继续秒回。
 
+### 语段编辑与中文排版
+- **实现逻辑**：`paragraphs` 步骤由 LLM 把零散句子组织成自然段（只决定边界、不改写文字）：段号连续覆盖校验，
+  非法则追加一次严格请求，仍失败按长度机械编组；本地再做「过短合并 + 均衡拆分」边界修正
+  （默认 60–260 字）。渲染层优先使用语段（旧任务自动回退逐句）；正文首行缩进两格。
+- **技术手段**：`vidar/paragraphs.py`（`_parse_groups` 校验 / `_enforce_bounds` 修正 / `build_paragraphs`）；
+  PDF 用 ReportLab `firstLineIndent`、Word 用 `first_line_indent`、EPUB 用 CSS `text-indent: 2em`。
+
 ### 图形界面（GUI）
 - **实现逻辑**：侧边栏四页（任务 / 历史 / 模型 / 关于）+ 卡片式布局：任务页完成「粘贴链接 → 开始/取消 →
   步骤进度 + 实时日志 → 打开文稿/预览排版」；历史页管理任务与产物；模型页按显存推荐、下载/取消/校验；

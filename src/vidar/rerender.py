@@ -16,6 +16,7 @@ from .errors import VidarError
 from .export import output_filename
 from .frames import load_frames
 from .models import AsrResult, RefineResult, SummaryResult, VideoMeta
+from .paragraphs import load_paragraphs
 from .pdf import DocData, render_docx, render_pdf
 from .pipeline.context import RunContext
 from .translate import load_translation
@@ -90,6 +91,7 @@ def load_doc_data(
         ),
         translation=load_translation(ctx),
         bilingual=bilingual if bilingual is not None else export_cfg.bilingual,
+        paragraphs=load_paragraphs(ctx),
     )
     return data, out_dir
 

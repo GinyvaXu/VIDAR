@@ -85,6 +85,14 @@ class UiSettings(BaseModel):
     theme: str = "auto"  # auto 跟随系统 | light 浅色 | dark 深色
 
 
+class ParagraphSettings(BaseModel):
+    """语段编辑：LLM 把零散句子组织成自然段（首行缩进两格由排版层实现）。"""
+
+    enabled: bool = True
+    min_chars: int = 60  # 段落下限（过短自动并入相邻段）
+    max_chars: int = 260  # 段落上限（过长在句边界自动拆分）
+
+
 class TranslateSettings(BaseModel):
     """双语翻译：检测到非目标语言时，逐段翻译为对照译文。"""
 
@@ -145,6 +153,7 @@ class Settings(BaseModel):
     asr: AsrSettings = Field(default_factory=AsrSettings)
     llm: LlmSettings = Field(default_factory=LlmSettings)
     translate: TranslateSettings = Field(default_factory=TranslateSettings)
+    paragraph: ParagraphSettings = Field(default_factory=ParagraphSettings)
     export: ExportSettings = Field(default_factory=ExportSettings)
     ui: UiSettings = Field(default_factory=UiSettings)
 
@@ -309,6 +318,11 @@ chunk_chars = 3500
 enabled = true              # 检测到非目标语言时自动翻译（源语言=目标语言时跳过）
 target_language = "zh"      # 目标语言：zh 中文 | en 英文 | ja 日文 …
 max_chars = 2500            # 单次翻译请求的源文本字符上限
+
+[paragraph]
+enabled = true              # LLM 把零散句子编成语段（排版更自然）
+min_chars = 60              # 段落下限（过短自动并入相邻段）
+max_chars = 260             # 段落上限（过长在句边界自动拆分）
 
 [export]
 srt = false

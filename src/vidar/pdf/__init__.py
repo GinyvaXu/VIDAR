@@ -6,7 +6,14 @@ from pathlib import Path
 
 from ..errors import DependencyError, VidarError
 from ..frames import ExtractedFrame
-from ..models import AsrResult, RefineResult, SummaryResult, TranslateResult, VideoMeta
+from ..models import (
+    AsrResult,
+    ParagraphResult,
+    RefineResult,
+    SummaryResult,
+    TranslateResult,
+    VideoMeta,
+)
 
 # 字号档位 → 缩放系数（compact 小字一页能放更多内容）
 SCALE_PRESETS = {"compact": 0.85, "standard": 1.0, "large": 1.18}
@@ -54,6 +61,7 @@ class DocData:
         point_thumb_mm: float = 28.0,
         translation: TranslateResult | None = None,
         bilingual: bool = True,
+        paragraphs: ParagraphResult | None = None,
     ) -> None:
         self.meta = meta
         self.summary = summary
@@ -68,6 +76,7 @@ class DocData:
         self.point_thumb_mm = float(point_thumb_mm) if point_thumb_mm else 28.0
         self.translation = translation
         self.bilingual = bool(bilingual) and translation is not None
+        self.paragraphs = paragraphs
         # 译文映射始终构建：关闭双语时正文仍用译文（文档语言 = 目标语言）
         self._translations: dict[int, str] = {}
         if translation is not None:
@@ -81,11 +90,23 @@ class DocData:
     def chapter_paragraphs(self, chapter) -> list[tuple[float, str, str]]:
         """章内段落（按时间归属）：(时间, 正文, 原文)。
 
-        有译文时正文=译文（无论是否双语）；原文仅在双语排版时附带，否则为空串。
+        优先使用语段编辑（paragraphs.json）的结果：一个自然段一行；
+        旧任务（无语段产物）回退为逐句渲染。有译文时正文=译文，原文仅在双语排版时附带。
         """
         start = chapter.start
         end = chapter.end if chapter.end is not None else float("inf")
-        rows: list[tuple[float, str, str]] = []
+
+        if self.paragraphs is not None and self.paragraphs.paragraphs:
+            rows: list[tuple[float, str, str]] = []
+            for para in self.paragraphs.paragraphs:
+                if not (start <= para.start < end):
+                    continue
+                source = para.source_text if self.bilingual else ""
+                rows.append((para.start, para.text, source))
+            if rows:
+                return rows
+
+        rows = []
         for segment in self.refine.segments:
             if not (start <= segment.start < end):
                 continue

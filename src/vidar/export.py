@@ -158,6 +158,7 @@ def export_outputs(
     export_cfg = ctx.settings.export
     if export_cfg.docx or export_cfg.pdf or export_cfg.epub:
         from .frames import load_frames
+        from .paragraphs import load_paragraphs
         from .pdf import DocData, render_docx, render_pdf
         from .translate import load_translation
 
@@ -175,6 +176,7 @@ def export_outputs(
             point_thumb_mm=export_cfg.point_thumb_mm,
             translation=load_translation(ctx),
             bilingual=export_cfg.bilingual,
+            paragraphs=load_paragraphs(ctx),
         )
         if export_cfg.docx:
             docx_path = render_docx(doc_data, out_dir / output_filename("docx", meta.title))

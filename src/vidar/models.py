@@ -151,3 +151,25 @@ class TranslateResult(BaseModel):
     tokens_in: int = 0
     tokens_out: int = 0
     segments: list[TranslatedSegment] = Field(default_factory=list)
+
+
+# --------------------------------------------------------------------------- #
+# paragraphs 产物（语段编辑）
+# --------------------------------------------------------------------------- #
+class ParagraphGroup(BaseModel):
+    """一个自然段：由若干连续段号拼接而成（时间戳取首段）。"""
+
+    index: int
+    start: float
+    end: float
+    text: str  # 目标语言正文（拼接）
+    source_text: str = ""  # 源语言原文（有译文时用于双语对照）
+    segments: list[int] = Field(default_factory=list)
+
+
+class ParagraphResult(BaseModel):
+    model: str
+    created_at: datetime = Field(default_factory=_now)
+    tokens_in: int = 0
+    tokens_out: int = 0
+    paragraphs: list[ParagraphGroup] = Field(default_factory=list)
