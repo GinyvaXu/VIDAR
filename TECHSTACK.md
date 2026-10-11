@@ -25,7 +25,7 @@
 
 ### 语音识别（ASR）
 - **实现逻辑**：faster-whisper large-v3（CUDA/float16）识别 → VAD 过滤静音段 + 关闭上下文回溯防复读 → 幻听短语黑名单过滤 → 按「40 字或 1.2 秒停顿」合并为阅读级段落，输出词级时间戳 `asr.json`。
-- **技术手段**：CTranslate2 / faster-whisper + Silero VAD（onnxruntime）；Windows 自动注册 pip 安装（或便携包内置）的 cuBLAS / cuDNN DLL 搜索路径，解决 `cublas64_12.dll not found`；便携包可运行 `vidar gpu install` 从 PyPI 镜像按需安装（默认只提取实测最小集，约 1.5GB 磁盘）；模型支持 HF ID 与本地目录，并对便携包内 `./models/<名字>` 做自动回退。
+- **技术手段**：CTranslate2 / faster-whisper + Silero VAD（onnxruntime）；Windows 自动注册 pip 安装（或便携包内置）的 cuBLAS / cuDNN DLL 搜索路径，解决 `cublas64_12.dll not found`；便携包可运行 `vidar gpu install` 从 PyPI 镜像按需安装（默认只提取实测最小集，约 1.5GB 磁盘）；模型引用支持 HF ID / 本地目录 / 相对路径：依次相对 当前目录、exe 目录、**机器级共享模型目录**（`%LOCALAPPDATA%/vidar/models`，可用 junction 复用一份模型）解析；明显是路径但找不到时抛出可执行报错（下载 / 放入包内 models / 填绝对路径三选一），不再出现「Repo id must be in the form…」式的晦涩错误。
 
 ### 文稿精修（LLM 段级）
 - **实现逻辑**：按 ~3500 字分块，块内逐段独立改写（去口水词、纠错别字、统一术语标点），要求输出与段号 1:1；缺失段落二次补修，明显被压缩的段落回退原文。

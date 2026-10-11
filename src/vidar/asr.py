@@ -107,20 +107,61 @@ def cuda_dll_dirs() -> list[Path]:
     return found
 
 
+def _looks_like_path(value: str) -> bool:
+    """看起来是本地路径（而非 HF 仓库名）：./ ../ / \\ ~ 或盘符开头。"""
+    text = value.strip()
+    if not text:
+        return False
+    if text.startswith((".", "/", "\\", "~")):
+        return True
+    return len(text) >= 2 and text[1] == ":"  # C:/... 或 C:\...
+
+
 def resolve_model_reference(model: str) -> str:
-    """解析 ASR 模型引用：HF ID / 本地目录 / 便携包内相对目录回退。"""
-    candidate = Path(model)
+    """解析 ASR 模型引用：HF ID / 本地目录 / 便携包内相对目录回退。
+
+    - 已是目录 → 转为绝对路径；
+    - 相对路径（如 ./models/faster-whisper-large-v3）依次相对 当前目录 / exe 目录 /
+      机器级共享目录（如 %LOCALAPPDATA%/vidar）解析，并按「模型名」回退 models/<name>；
+    - 明显是路径但哪里都找不到 → 抛清晰错误（下载 / 放入包内 models / 填绝对路径），
+      避免 faster-whisper 把路径当 HF 仓库名报晦涩错误；
+    - 其余（large-v3、Systran/faster-whisper-large-v3 等）原样交给 faster-whisper。
+    """
+    value = (model or "").strip()
+    if not value:
+        raise VidarError(
+            "未配置 ASR 模型",
+            hint="在 config.toml 的 [asr].model 填模型名（如 large-v3），或用模型页/命令下载",
+        )
+    candidate = Path(value).expanduser()
     if candidate.is_dir():
-        return str(candidate)
-    name = candidate.name or model
-    roots = [Path.cwd()]
+        return str(candidate.resolve())
+    name = candidate.name or value
+    roots: list[Path] = [Path.cwd()]
     if (folder := exe_dir()) is not None:
         roots.append(folder)
+    with contextlib.suppress(Exception):
+        from .config import shared_data_dir
+
+        roots.append(shared_data_dir())
+    tried: list[str] = []
     for root in roots:
-        fallback = root / "models" / name
-        if fallback.is_dir():
-            return str(fallback)
-    return model
+        for fallback in (root / value, root / "models" / name):
+            key = str(fallback)
+            if key not in tried:
+                tried.append(key)
+            if fallback.is_dir():
+                return str(fallback.resolve())
+    if _looks_like_path(value):
+        raise VidarError(
+            f"本地模型目录不存在：{model}",
+            hint=(
+                "已尝试：" + "；".join(tried)
+                + "\n解决任一即可：① 运行 VIDAR-CLI.exe model download large-v3 下载；"
+                "② 把模型目录放到包内 models/ 下；③ config.toml [asr].model 填绝对路径"
+            ),
+        )
+    return value
 
 
 def resolve_device(settings: AsrSettings) -> tuple[str, str]:

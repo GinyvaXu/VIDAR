@@ -1,5 +1,14 @@
 # 更新日志
 
+## [0.12.1] - 2026-10-11
+### Fixed
+- **便携包 ASR 模型路径解析**：便携包配置为相对路径（`./models/faster-whisper-large-v3`）时，模型目录未找到会把路径原样交给
+  faster-whisper，被当成 HuggingFace 仓库名报出晦涩错误（`Repo id must be in the form ...`）。现在按顺序解析：
+  当前目录 → exe 目录 → **机器级共享模型目录**（`%LOCALAPPDATA%\\vidar\\models`，可用 junction 让多版本共用一份模型）；
+  明显是路径但都找不到时，给出可执行的错误提示（① 命令下载 ② 放入包内 models ③ 填绝对路径）
+- 队列页两个失败任务（`BV1bwhX66EAa` / `BV1FtaJ6BEsd`，均在 ASR 步骤）数据已合并回主项目 work 目录，
+  用 `local\\VIDAR.exe` 在历史页一键「继续」即可续跑（模型路径已是有效的绝对路径）
+
 ## [0.12.0] - 2026-10-11
 ### Added
 - **批量队列页（GUI）**：「队列」页粘贴多行链接（或从文件导入，自动去重）→ 顺序处理、失败不中断；
