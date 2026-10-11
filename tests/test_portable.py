@@ -14,7 +14,8 @@ def test_version_matches_version_file() -> None:
     version_file = Path(__file__).resolve().parent.parent / "VERSION"
     if not version_file.exists():
         pytest.skip("非源码仓库环境，跳过 VERSION 文件比对")
-    assert version_file.read_text(encoding="utf-8").strip() == __version__
+    # utf-8-sig：版本读取对 BOM 有防御，比对时保持一致
+    assert version_file.read_text(encoding="utf-8-sig").strip() == __version__
 
 
 def test_model_reference_fallback(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
