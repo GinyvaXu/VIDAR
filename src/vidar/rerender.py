@@ -11,6 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import cast
 
+from .ads import ads_note_text, apply_ads, load_ads
 from .config import Settings
 from .errors import VidarError
 from .export import output_filename
@@ -64,7 +65,8 @@ def load_doc_data(
 
     meta = cast(VideoMeta, loaded["meta.json"])
     asr = cast(AsrResult, loaded["asr.json"])
-    refine = cast(RefineResult, loaded["refine.json"])
+    ads = load_ads(ctx)
+    refine = apply_ads(cast(RefineResult, loaded["refine.json"]), ads)
     summary = cast(SummaryResult, loaded["summary.json"])
 
     export_cfg = settings.export
@@ -92,6 +94,7 @@ def load_doc_data(
         translation=load_translation(ctx),
         bilingual=bilingual if bilingual is not None else export_cfg.bilingual,
         paragraphs=load_paragraphs(ctx),
+        ads_note=ads_note_text(ads),
     )
     return data, out_dir
 

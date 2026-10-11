@@ -42,6 +42,10 @@ enabled = true              # 检测到非目标语言时自动翻译（源语�
 target_language = "zh"      # 目标语言：zh 中文 | en 英文 | ja 日文 …
 max_chars = 2500            # 单次翻译请求的源文本字符上限
 
+[ads]
+enabled = true              # LLM 识别真广告（赞助/带货/商务植入）并从成品省略；
+                            # 省略内容另存「省略广告版-标题.txt」，原始/精修稿同样省略
+
 [paragraph]
 enabled = true              # LLM 把零散句子编成语段（文章体排版，首行缩进两格）
 min_chars = 60              # 段落下限（过短自动并入相邻段）

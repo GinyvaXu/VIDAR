@@ -4,7 +4,14 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from .models import AsrResult, RefineResult, SummaryResult, TranslateResult, VideoMeta
+from .models import (
+    AdsResult,
+    AsrResult,
+    RefineResult,
+    SummaryResult,
+    TranslateResult,
+    VideoMeta,
+)
 from .utils.text import format_clock, format_srt_time
 
 
@@ -28,8 +35,10 @@ def note_link(url: str, start: float | None) -> str:
     return f"{url}{joiner}t={int(start)}"
 
 
-def render_asr_transcript(result: AsrResult, *, title: str = "原始逐字稿") -> str:
-    """原始逐字稿：每段带 [mm:ss] 时间戳，保留口语原貌。"""
+def render_asr_transcript(
+    result: AsrResult, *, title: str = "原始逐字稿", ads_note: str = ""
+) -> str:
+    """原始逐字稿：每段带 [mm:ss] 时间戳，保留口语原貌（广告段已省略）。"""
     lines: list[str] = [
         f"# {title}",
         "",
@@ -39,6 +48,8 @@ def render_asr_transcript(result: AsrResult, *, title: str = "原始逐字稿") 
     ]
     for seg in result.segments:
         lines.append(f"- **[{format_clock(seg.start)}]** {seg.text}")
+    if ads_note:
+        lines += ["", f"> {ads_note}"]
     lines.append("")
     return "\n".join(lines)
 
@@ -49,6 +60,7 @@ def render_refined_transcript(
     title: str = "精修稿",
     translation: TranslateResult | None = None,
     bilingual: bool = False,
+    ads_note: str = "",
 ) -> str:
     mapping = _translation_map(translation, bilingual)
     lines: list[str] = [
@@ -70,6 +82,8 @@ def render_refined_transcript(
             lines.append(f"  - *{seg.refined_text}*")
         else:
             lines.append(f"- **[{format_clock(seg.start)}]** {seg.refined_text}")
+    if ads_note:
+        lines += ["", f"> {ads_note}"]
     lines.append("")
     return "\n".join(lines)
 
@@ -78,7 +92,9 @@ def _cell(text: str) -> str:
     return text.replace("|", "\\|").replace("\n", " ").strip()
 
 
-def render_notes(meta: VideoMeta, summary: SummaryResult, *, asr_model: str) -> str:
+def render_notes(
+    meta: VideoMeta, summary: SummaryResult, *, asr_model: str, ads_note: str = ""
+) -> str:
     processed = datetime.now().strftime("%Y-%m-%d %H:%M")
     published = meta.pubdate.strftime("%Y-%m-%d") if meta.pubdate else ""
     frontmatter = [
@@ -123,6 +139,8 @@ def render_notes(meta: VideoMeta, summary: SummaryResult, *, asr_model: str) -> 
             if chapter.summary:
                 body.append(f"- {chapter.summary}")
             body.append("")
+    if ads_note:
+        body += [f"> {ads_note}"]
     return "\n".join(frontmatter + body)
 
 
@@ -154,6 +172,40 @@ def render_outline(meta: VideoMeta, summary: SummaryResult) -> str:
         lines += ["", "## 补充要点", ""]
         lines += [f"- {text}" for text in unassigned]
     lines.append("")
+    return "\n".join(lines)
+
+
+def render_ads_record(
+    meta: VideoMeta,
+    ads: AdsResult,
+    *,
+    refine: RefineResult | None = None,
+    asr: AsrResult | None = None,
+) -> str:
+    """「省略广告」记录：被省略段落的文本与时间戳（供核对与恢复）。"""
+    texts = {seg.idx: seg.refined_text for seg in refine.segments} if refine else {}
+    fallback = {seg.idx: seg.text for seg in asr.segments} if asr else {}
+    total = sum(item.duration_sec for item in ads.ranges)
+    lines: list[str] = [
+        "VIDAR 广告省略记录",
+        "==============================",
+        f"视频：{meta.title}（{meta.bvid}）",
+        f"来源：{meta.url}",
+        f"生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M')}",
+        f"共省略 {len(ads.ranges)} 段广告，合计 {format_clock(total)}。",
+        "以下内容已从原始稿 / 精修稿及各成品中省略（仅本文件保留）。",
+        "",
+    ]
+    for number, item in enumerate(ads.ranges, start=1):
+        reason = f"（{item.reason}）" if item.reason else ""
+        lines.append(
+            f"【广告 {number}】{format_clock(item.start)} – {format_clock(item.end)}{reason}"
+        )
+        for idx in range(item.start_idx, item.end_idx + 1):
+            text = (texts.get(idx) or fallback.get(idx) or "").strip()
+            if text:
+                lines.append(f"  {text}")
+        lines.append("")
     return "\n".join(lines)
 
 

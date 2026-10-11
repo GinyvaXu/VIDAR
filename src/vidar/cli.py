@@ -104,6 +104,9 @@ def run(
     translate: bool = typer.Option(
         True, "--translate/--no-translate", help="外语视频自动双语翻译"
     ),
+    ads: bool = typer.Option(
+        True, "--ads/--no-ads", help="LLM 识别广告段落并从成品省略（另存省略记录）"
+    ),
     target_lang: str | None = typer.Option(
         None, "--target-lang", help="翻译目标语言：zh 中文 | en 英文 | ja 日文 …"
     ),
@@ -147,6 +150,8 @@ def run(
         overrides.setdefault("export", {})["screenshots"] = False
     if not translate:
         overrides.setdefault("translate", {})["enabled"] = False
+    if not ads:
+        overrides.setdefault("ads", {})["enabled"] = False
     if target_lang:
         overrides.setdefault("translate", {})["target_language"] = target_lang
     if not bilingual:
@@ -178,7 +183,10 @@ def run(
                 f"开启（→ {settings.translate.target_language}）"
                 if settings.translate.enabled
                 else "关闭"
-            ),
+            )
+            + "\n"
+            "[bold]广告识别[/bold]　"
+            + ("开启（成品省略 + 记录留档）" if settings.ads.enabled else "关闭"),
             title="VIDAR",
             border_style="cyan",
         )

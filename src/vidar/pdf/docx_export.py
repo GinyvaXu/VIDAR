@@ -168,6 +168,9 @@ def build_docx(data: DocData, output_path: Path) -> Path:
         size=9,
         color=GRAY,
     )
+    if data.ads_note:
+        ads_paragraph = document.add_paragraph()
+        _run(ads_paragraph, data.ads_note, size=9, color=GRAY)
 
     document.save(str(output_path))
     return output_path

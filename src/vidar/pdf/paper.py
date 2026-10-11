@@ -240,6 +240,11 @@ def build_paper(data: DocData) -> Path:
     story += [
         HRFlowable(width="100%", thickness=0.5, color=HAIRLINE, spaceBefore=8, spaceAfter=6),
         Paragraph(f"原视频：{escape(meta.url)}", styles["note"]),
+        *(
+            [Paragraph(escape(data.ads_note), styles["note"])]
+            if data.ads_note
+            else []
+        ),
         Paragraph(
             f"本文档由 VIDAR v{__version__} 生成于 {datetime.now().strftime('%Y-%m-%d %H:%M')}",
             styles["note"],

@@ -95,6 +95,31 @@ class RefineResult(BaseModel):
 
 
 # --------------------------------------------------------------------------- #
+# ads 产物（广告识别）
+# --------------------------------------------------------------------------- #
+class AdRange(BaseModel):
+    """一段被识别为广告的连续段号区间（闭区间，含首含尾，refine/asr 同一套段号）。"""
+
+    start_idx: int
+    end_idx: int
+    start: float = 0.0  # 秒（由段号本地映射，LLM 不接触时间数字）
+    end: float = 0.0
+    reason: str = ""
+
+    @property
+    def duration_sec(self) -> float:
+        return max(0.0, self.end - self.start)
+
+
+class AdsResult(BaseModel):
+    model: str
+    created_at: datetime = Field(default_factory=_now)
+    tokens_in: int = 0
+    tokens_out: int = 0
+    ranges: list[AdRange] = Field(default_factory=list)
+
+
+# --------------------------------------------------------------------------- #
 # chapters / summarize 产物
 # --------------------------------------------------------------------------- #
 class FigureHint(BaseModel):

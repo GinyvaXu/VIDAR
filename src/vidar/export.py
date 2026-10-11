@@ -10,8 +10,10 @@ import shutil
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from .models import AsrResult, Chapter, RefineResult, SummaryResult, VideoMeta
+from .ads import ads_note_text, apply_ads, apply_ads_to_asr, load_ads
+from .models import AdsResult, AsrResult, Chapter, RefineResult, SummaryResult, VideoMeta
 from .render import (
+    render_ads_record,
     render_asr_transcript,
     render_notes,
     render_outline,
@@ -29,6 +31,7 @@ _FILE_VARIANTS = {
     "outline": ("大纲", "md"),
     "raw": ("原始稿", "md"),
     "refined": ("精修稿", "md"),
+    "ads": ("省略广告", "txt"),
     "srt": ("字幕", "srt"),
     "meta": ("元数据", "json"),
     "docx": ("Word", "docx"),
@@ -53,8 +56,9 @@ def build_export_meta(
     asr: AsrResult,
     refine: RefineResult,
     summary: SummaryResult,
+    ads: AdsResult | None = None,
 ) -> dict:
-    return {
+    payload = {
         "video": meta.model_dump(mode="json"),
         "processing": {
             "asr": {
@@ -79,6 +83,17 @@ def build_export_meta(
             "exported_at": datetime.now().isoformat(timespec="seconds"),
         },
     }
+    if ads is not None:
+        omitted = sum(item.end_idx - item.start_idx + 1 for item in ads.ranges)
+        payload["processing"]["ads"] = {
+            "model": ads.model,
+            "ranges": len(ads.ranges),
+            "segments_omitted": omitted,
+            "seconds": round(sum(item.duration_sec for item in ads.ranges), 1),
+            "tokens_in": ads.tokens_in,
+            "tokens_out": ads.tokens_out,
+        }
+    return payload
 
 
 def cleanup_media(ctx: RunContext) -> list[str]:
@@ -108,6 +123,11 @@ def export_outputs(
 ) -> dict[str, str]:
     from .translate import load_translation
 
+    ads = load_ads(ctx)
+    asr_all, refine_all = asr, refine  # 原始（未过滤）版本：省略记录与元数据用
+    asr = apply_ads_to_asr(asr_all, ads)
+    refine = apply_ads(refine_all, ads)
+    ads_note = ads_note_text(ads)
     translation = load_translation(ctx)
     bilingual = ctx.settings.export.bilingual and translation is not None
     published = meta.pubdate.strftime("%Y-%m-%d") if meta.pubdate else None
@@ -121,15 +141,23 @@ def export_outputs(
     meta_path = out_dir / output_filename("meta", meta.title)
 
     asr_label = f"{asr.engine} / {asr.model}"
-    notes_path.write_text(render_notes(meta, summary, asr_model=asr_label), encoding="utf-8")
+    notes_path.write_text(
+        render_notes(meta, summary, asr_model=asr_label, ads_note=ads_note), encoding="utf-8"
+    )
     outline_path.write_text(render_outline(meta, summary), encoding="utf-8")
-    raw_path.write_text(render_asr_transcript(asr), encoding="utf-8")
+    raw_path.write_text(render_asr_transcript(asr, ads_note=ads_note), encoding="utf-8")
     refined_path.write_text(
-        render_refined_transcript(refine, translation=translation, bilingual=bilingual),
+        render_refined_transcript(
+            refine, translation=translation, bilingual=bilingual, ads_note=ads_note
+        ),
         encoding="utf-8",
     )
     meta_path.write_text(
-        json.dumps(build_export_meta(meta, asr, refine, summary), ensure_ascii=False, indent=2),
+        json.dumps(
+            build_export_meta(meta, asr_all, refine_all, summary, ads=ads),
+            ensure_ascii=False,
+            indent=2,
+        ),
         encoding="utf-8",
     )
 
@@ -138,6 +166,13 @@ def export_outputs(
         "outline": str(outline_path.resolve()),
         "output_dir": str(out_dir.resolve()),
     }
+    if ads is not None and ads.ranges:
+        ads_path = out_dir / output_filename("ads", meta.title)
+        ads_path.write_text(
+            render_ads_record(meta, ads, refine=refine_all, asr=asr_all), encoding="utf-8"
+        )
+        artifacts["ads"] = str(ads_path.resolve())
+        ctx.log.info("广告省略记录已导出：%s", ads_path.name)
 
     # ---- 关键帧图片（frames 步骤产物）----
     images_src = ctx.artifact("images")
@@ -177,6 +212,7 @@ def export_outputs(
             translation=load_translation(ctx),
             bilingual=export_cfg.bilingual,
             paragraphs=load_paragraphs(ctx),
+            ads_note=ads_note,
         )
         if export_cfg.docx:
             docx_path = render_docx(doc_data, out_dir / output_filename("docx", meta.title))

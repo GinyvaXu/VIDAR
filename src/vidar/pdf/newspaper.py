@@ -248,6 +248,11 @@ def build_newspaper(data: DocData) -> Path:
 
         story.append(Spacer(1, 9))
 
+    if data.ads_note:
+        story += [
+            Spacer(1, 4),
+            Paragraph(escape(data.ads_note), styles["caption"]),
+        ]
     story += [
         Spacer(1, 4),
         Paragraph(f"原视频：{escape(data.meta.url)}", styles["caption"]),

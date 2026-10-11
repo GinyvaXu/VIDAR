@@ -1,4 +1,4 @@
-"""11 个流水线步骤：resolve → download → audio → asr → refine → translate
+"""12 个流水线步骤：resolve → download → audio → asr → refine → ads → translate
 → chapters → summarize → paragraphs → frames → export。"""
 
 from __future__ import annotations
@@ -10,6 +10,7 @@ from typing import TypeVar
 
 from pydantic import BaseModel
 
+from ..ads import ads_range_key, detect_ads, load_ads, load_refine_effective
 from ..asr import transcribe
 from ..chapters import build_chapters
 from ..downloader import download_audio
@@ -37,7 +38,7 @@ def _load_json_model(ctx: RunContext, filename: str, model_type: type[ModelT]) -
         raise VidarError(
             f"缺少中间产物 {filename}",
             hint="请先运行前置步骤：resolve → download → audio → asr → refine → "
-            "translate → chapters → summarize",
+            "ads → translate → chapters → summarize",
         )
     return model_type.model_validate_json(path.read_text(encoding="utf-8"))
 
@@ -206,6 +207,50 @@ class RefineStep:
         return {"refine": "refine.json", "refined": "transcript.refined.md"}
 
 
+class AdsStep:
+    """广告识别（LLM 段级）：refine.json → ads.json（被标记的段号区间）。
+
+    下游（翻译/章节/摘要/语段/导出/重渲染）统一经「有效视图」消费精修稿，
+    自动省略广告段；被省略内容由导出层另存「省略广告版-*.txt」记录。
+    """
+
+    name = "ads"
+    title = "广告识别（LLM）"
+    milestone: str | None = None
+
+    def run(self, ctx: RunContext) -> dict[str, str]:
+        stale = ctx.artifact("ads.json")
+        if not ctx.settings.ads.enabled:
+            ctx.log.info("广告识别已关闭（ads.enabled=false），跳过")
+            stale.unlink(missing_ok=True)
+            return {}
+
+        previous = load_ads(ctx)
+        refine = _load_json_model(ctx, "refine.json", RefineResult)
+        result = detect_ads(ctx, refine)
+        stale.write_text(result.model_dump_json(indent=2), encoding="utf-8")
+
+        if result.ranges:
+            seconds = sum(item.duration_sec for item in result.ranges)
+            ctx.log.info(
+                "广告识别完成：%d 段，合计 %s（成品将省略）",
+                len(result.ranges),
+                format_clock(seconds),
+            )
+            if len(refine.segments) <= len(
+                {idx for r in result.ranges for idx in range(r.start_idx, r.end_idx + 1)}
+            ):
+                ctx.log.warning("全部段落都被识别为广告——如为误判可在配置关闭 [ads] 后重跑")
+        else:
+            ctx.log.info("广告识别完成：未发现广告段落")
+
+        # 广告区间变化时清理下游按块检查点（段号重编号后旧译文/旧摘要不可复用）
+        if ads_range_key(previous) != ads_range_key(result):
+            for name in ("translate.partial.json", "summarize.partial.json"):
+                ctx.artifact(name).unlink(missing_ok=True)
+        return {"ads": "ads.json"}
+
+
 class TranslateStep:
     """双语翻译（LLM）：精修稿 → 目标语言译文（1:1 段号，供双语对照）。"""
 
@@ -221,7 +266,7 @@ class TranslateStep:
             stale.unlink(missing_ok=True)
             return {}
 
-        refine = _load_json_model(ctx, "refine.json", RefineResult)
+        refine = load_refine_effective(ctx)
         asr = _load_json_model(ctx, "asr.json", AsrResult)
         if not should_translate(
             asr.language, settings.target_language, skip_same=settings.skip_languages
@@ -255,7 +300,7 @@ class ChaptersStep:
     milestone: str | None = None
 
     def run(self, ctx: RunContext) -> dict[str, str]:
-        refine = _load_json_model(ctx, "refine.json", RefineResult)
+        refine = load_refine_effective(ctx)
         # 有译文时章节基于译文切分（文档语言与目标语言一致）
         refine = apply_translation(refine, load_translation(ctx))
         chapters, _client = build_chapters(ctx, refine)
@@ -271,7 +316,7 @@ class SummarizeStep:
     milestone: str | None = None
 
     def run(self, ctx: RunContext) -> dict[str, str]:
-        refine = _load_json_model(ctx, "refine.json", RefineResult)
+        refine = load_refine_effective(ctx)
         refine = apply_translation(refine, load_translation(ctx))
         chapters = _load_chapters(ctx)
         summary, _client = summarize(ctx, refine, chapters)
@@ -297,7 +342,7 @@ class ParagraphsStep:
             ctx.log.info("语段编辑已关闭（paragraph.enabled=false），跳过")
             stale.unlink(missing_ok=True)
             return {}
-        refine = _load_json_model(ctx, "refine.json", RefineResult)
+        refine = load_refine_effective(ctx)
         translation = load_translation(ctx)
         result = build_paragraphs(ctx, refine, translation)
         stale.write_text(result.model_dump_json(indent=2), encoding="utf-8")
@@ -354,6 +399,7 @@ def default_steps() -> list[object]:
         AudioStep(),
         AsrStep(),
         RefineStep(),
+        AdsStep(),
         TranslateStep(),
         ChaptersStep(),
         SummarizeStep(),
@@ -369,6 +415,7 @@ STEP_ORDER = [
     "audio",
     "asr",
     "refine",
+    "ads",
     "translate",
     "chapters",
     "summarize",

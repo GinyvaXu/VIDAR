@@ -26,6 +26,12 @@ VIDAR {{VERSION}} 便携版（Windows x64）
   验证：VIDAR-CLI.exe doctor（faster-whisper 行显示 "CUDA 设备 1"）
   无 N 卡可跳过：会自动使用 CPU（速度较慢）。
 
+【广告省略】（默认开启）
+  LLM 自动识别文稿里的真广告（赞助口播/带货引导/商务植入），
+  成品（原始稿/精修稿/笔记/PDF/Word/EPUB/字幕）全部省略；
+  被省略内容另存「省略广告版-标题.txt」记录留档。
+  关闭方式：VIDAR-CLI.exe run BV号 --no-ads（或 config.toml 中 [ads] enabled=false）
+
 【PDF / Word / 电子书导出】（可选，图文并茂）
   VIDAR-CLI.exe run BV号 --pdf                导出 PDF（默认报刊风 + 全文）
   VIDAR-CLI.exe run BV号 --pdf --pdf-style paper    论文风（封面/摘要/目录）

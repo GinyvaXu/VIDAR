@@ -70,6 +70,8 @@ class SettingsDialog(QDialog):
         self.target_language = QLineEdit(settings.translate.target_language)
         self.bilingual = QCheckBox("双语排版（译文正文 + 原文小字）")
         self.bilingual.setChecked(settings.export.bilingual)
+        self.ads_enabled = QCheckBox("自动识别并省略广告（LLM，另存省略记录）")
+        self.ads_enabled.setChecked(settings.ads.enabled)
 
         self.test_btn = QPushButton("测试连接")
         self.test_status = QLabel("")
@@ -104,6 +106,7 @@ class SettingsDialog(QDialog):
         form.addRow("翻译目标语言（zh/en/ja…）", self.target_language)
         form.addRow("", self.translate_enabled)
         form.addRow("", self.bilingual)
+        form.addRow("", self.ads_enabled)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
         buttons.button(QDialogButtonBox.Save).setText("保存")
@@ -167,6 +170,7 @@ class SettingsDialog(QDialog):
                 "enabled": self.translate_enabled.isChecked(),
                 "target_language": self.target_language.text().strip() or "zh",
             },
+            "ads": {"enabled": self.ads_enabled.isChecked()},
             "export": {
                 "keep_media": self.keep_media.isChecked(),
                 "screenshots": self.screenshots.isChecked(),

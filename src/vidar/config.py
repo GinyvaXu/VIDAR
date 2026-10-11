@@ -103,6 +103,15 @@ class TranslateSettings(BaseModel):
     skip_languages: bool = True  # 源语言命中目标语言时自动跳过
 
 
+class AdsSettings(BaseModel):
+    """广告识别：LLM 标记真广告（赞助/带货/商务植入）并从成品省略。
+
+    被省略内容另存「省略广告版-*.txt」记录；原始/精修逐字稿同样省略。
+    """
+
+    enabled: bool = True
+
+
 class LlmSettings(BaseModel):
     api_base: str = ""
     api_key: str = ""
@@ -154,6 +163,7 @@ class Settings(BaseModel):
     asr: AsrSettings = Field(default_factory=AsrSettings)
     llm: LlmSettings = Field(default_factory=LlmSettings)
     translate: TranslateSettings = Field(default_factory=TranslateSettings)
+    ads: AdsSettings = Field(default_factory=AdsSettings)
     paragraph: ParagraphSettings = Field(default_factory=ParagraphSettings)
     export: ExportSettings = Field(default_factory=ExportSettings)
     ui: UiSettings = Field(default_factory=UiSettings)
@@ -319,6 +329,10 @@ chunk_chars = 3500
 enabled = true              # 检测到非目标语言时自动翻译（源语言=目标语言时跳过）
 target_language = "zh"      # 目标语言：zh 中文 | en 英文 | ja 日文 …
 max_chars = 2500            # 单次翻译请求的源文本字符上限
+
+[ads]
+enabled = true              # LLM 识别真广告（赞助/带货/商务植入）并从成品省略；
+                            # 省略内容另存「省略广告版-标题.txt」，原始/精修稿同样省略
 
 [paragraph]
 enabled = true              # LLM 把零散句子编成语段（排版更自然）

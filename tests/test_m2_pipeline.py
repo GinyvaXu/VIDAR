@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -26,6 +27,8 @@ class _FakeLlmClient:
         self.usage = _FakeUsage()
 
     def complete_json(self, prompt: str, *, system: str = "", model: str | None = None) -> dict:
+        if '"ads"' in prompt:  # ads：把第 1 段标记为广告
+            return {"ads": [{"start": 1, "end": 1, "reason": "赞助口播"}]}
         if '"one_liner"' in prompt:  # reduce
             return {
                 "one_liner": "一句话结论",
@@ -83,6 +86,7 @@ def _make_context(monkeypatch, tmp_path: Path) -> RunContext:  # noqa: ANN001
     ctx.artifact("asr.json").write_text(asr.model_dump_json(), encoding="utf-8")
     for module in (
         "vidar.refine",
+        "vidar.ads",
         "vidar.chapters",
         "vidar.summarize",
         "vidar.paragraphs",
@@ -97,6 +101,7 @@ def test_m2_end_to_end_with_fake_llm(monkeypatch, tmp_path: Path) -> None:
     runner.run(from_step="refine")
 
     assert (ctx.work_dir / "refine.json").exists()
+    assert (ctx.work_dir / "ads.json").exists()
     assert (ctx.work_dir / "chapters.json").exists()
     assert (ctx.work_dir / "summary.json").exists()
     assert (ctx.work_dir / "paragraphs.json").exists()
@@ -108,13 +113,21 @@ def test_m2_end_to_end_with_fake_llm(monkeypatch, tmp_path: Path) -> None:
     assert "核心要点" in notes
     assert "## 章节导航" in notes
     assert "?t=0" in notes  # 跳转链接
+    assert "本稿已自动省略 1 段广告" in notes  # 文末一句
 
     outline = next((notes_files[0].parent).glob("大纲版-*.md")).read_text(encoding="utf-8")
     assert "- 开场（00:00）" in outline
 
-    assert next((notes_files[0].parent).glob("原始稿版-*.md"))
-    assert next((notes_files[0].parent).glob("精修稿版-*.md"))
-    assert next((notes_files[0].parent).glob("元数据版-*.json"))
+    # 广告段（第 1 号段）已从原始稿 / 精修稿省略，但进入「省略广告」记录
+    raw = next((notes_files[0].parent).glob("原始稿版-*.md")).read_text(encoding="utf-8")
+    refined = next((notes_files[0].parent).glob("精修稿版-*.md")).read_text(encoding="utf-8")
+    assert "第一个话题" not in raw and "第一个话题" not in refined
+    assert "第二个话题" in refined
+    record = next((notes_files[0].parent).glob("省略广告版-*.txt")).read_text(encoding="utf-8")
+    assert "第一个话题是语音识别。" in record and "赞助口播" in record
+    meta_file = next((notes_files[0].parent).glob("元数据版-*.json"))
+    meta_payload = json.loads(meta_file.read_text(encoding="utf-8"))
+    assert meta_payload["processing"]["ads"]["ranges"] == 1
 
 
 def test_resume_skips_done_steps(monkeypatch, tmp_path: Path) -> None:

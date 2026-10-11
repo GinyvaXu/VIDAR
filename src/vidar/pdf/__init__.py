@@ -62,6 +62,7 @@ class DocData:
         translation: TranslateResult | None = None,
         bilingual: bool = True,
         paragraphs: ParagraphResult | None = None,
+        ads_note: str = "",
     ) -> None:
         self.meta = meta
         self.summary = summary
@@ -77,6 +78,7 @@ class DocData:
         self.translation = translation
         self.bilingual = bool(bilingual) and translation is not None
         self.paragraphs = paragraphs
+        self.ads_note = ads_note
         # 译文映射始终构建：关闭双语时正文仍用译文（文档语言 = 目标语言）
         self._translations: dict[int, str] = {}
         if translation is not None:

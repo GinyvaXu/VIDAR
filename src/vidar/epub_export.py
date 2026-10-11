@@ -179,6 +179,8 @@ def _appendix_page(data: DocData) -> str:
         body.append(f'<p>原视频：<a href="{_attr(meta.url)}">{xml_escape(meta.bvid)}</a></p>')
     body.append(f"<p>整理工具：VIDAR v{__version__}（本地识别 + 大模型整理）</p>")
     body.append(f"<p>生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M')}</p>")
+    if data.ads_note:
+        body.append(f'<p class="meta">{xml_escape(data.ads_note)}</p>')
     body.append(
         '<p class="meta">本文档由 AI 自动整理生成，仅供个人学习研究使用；'
         "内容版权归原作者所有，请勿传播。</p>"
