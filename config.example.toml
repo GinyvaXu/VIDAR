@@ -19,7 +19,7 @@ engine = "faster-whisper"
 model = "large-v3"          # large-v3 | large-v3-turbo | medium | small
 device = "auto"             # auto | cuda | cpu
 compute_type = "auto"       # auto | float16 | int8_float16 | int8
-language = "zh"
+language = "auto"           # auto 自动检测 | zh | en | ja | ko …（外语视频保持 auto）
 vad = true
 beam_size = 5
 filter_hallucinations = true
@@ -37,6 +37,16 @@ timeout_sec = 120
 max_retries = 3
 chunk_chars = 3500          # LLM 分块大小（字符数）
 
+[translate]
+enabled = true              # 检测到非目标语言时自动翻译（源语言=目标语言时跳过）
+target_language = "zh"      # 目标语言：zh 中文 | en 英文 | ja 日文 …
+max_chars = 2500            # 单次翻译请求的源文本字符上限
+
+[paragraph]
+enabled = true              # LLM 把零散句子编成语段（文章体排版，首行缩进两格）
+min_chars = 60              # 段落下限（过短自动并入相邻段）
+max_chars = 260             # 段落上限（过长在句边界自动拆分）
+
 [export]
 srt = false                 # 是否顺手导出 transcript.srt
 keep_media = false          # true 则保留视频/音频文件
@@ -48,4 +58,13 @@ min_gap_sec = 15            # 相邻配图最小间隔（秒）
 pdf = false                 # 导出 PDF（阅读/打印用）
 pdf_style = "newspaper"     # newspaper 报刊风 | paper 论文风
 pdf_mode = "full"           # full 全文 | brief 精简
+pdf_scale = "standard"      # 字号档位：compact 小 | standard 标准 | large 大（或 0.6–1.5）
+point_figures = "all"       # 报刊要点截图密度：all 全部 | sparse 隔一取一 | off 关闭
+point_thumb_mm = 28         # 报刊「本期看点」缩略图宽度（mm）
+bilingual = true            # 有译文时双语排版（译文正文 + 原文小字）
 docx = false                # 导出 Word（可再编辑）
+epub = false                # 导出 EPUB 电子书（微信读书 / 墨水屏）
+
+[ui]
+theme = "auto"              # auto 跟随系统 | light 浅色 | dark 深色
+# llm_wizard_done = true    # LLM 接入向导已完成（首启引导；改 false 可重新触发）

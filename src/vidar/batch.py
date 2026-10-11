@@ -63,11 +63,15 @@ def run_batch(
     sources: Sequence[str],
     *,
     on_event: Callable[[str, dict], None] | None = None,
+    on_ctx: Callable[[object], None] | None = None,
     from_step: str | None = None,
     to_step: str | None = None,
     stop_on_error: bool = False,
 ) -> BatchResult:
-    """顺序处理多个来源，返回汇总结果。"""
+    """顺序处理多个来源，返回汇总结果。
+
+    on_ctx：每创建一个 RunContext 时回调（GUI 借此持有当前任务以支持取消）。
+    """
     from .pipeline import PipelineRunner, RunContext, default_steps
 
     result = BatchResult(items=[BatchItem(source=source) for source in sources])
@@ -83,6 +87,8 @@ def run_batch(
         emit("batch_item", index=index, total=total, source=item.source, status="running")
         try:
             ctx = RunContext(settings, item.source)
+            if on_ctx is not None:
+                on_ctx(ctx)
 
             def forward(event: str, data: dict, _index: int = index) -> None:
                 emit(event, **data, batch_index=_index, batch_total=total)

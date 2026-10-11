@@ -83,6 +83,7 @@ class AsrSettings(BaseModel):
 
 class UiSettings(BaseModel):
     theme: str = "auto"  # auto 跟随系统 | light 浅色 | dark 深色
+    llm_wizard_done: bool = False  # LLM 接入向导是否已完成（未配置 LLM 时首启引导）
 
 
 class ParagraphSettings(BaseModel):
@@ -344,6 +345,7 @@ epub = false                  # 导出 EPUB 电子书（微信读书 / 墨水屏
 
 [ui]
 theme = "auto"                # auto 跟随系统 | light 浅色 | dark 深色
+# llm_wizard_done = false     # LLM 接入向导是否已完成（GUI 首启引导）
 """
 
 

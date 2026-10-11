@@ -60,9 +60,12 @@
   PDF 用 ReportLab `firstLineIndent`、Word 用 `first_line_indent`、EPUB 用 CSS `text-indent: 2em`。
 
 ### 图形界面（GUI）
-- **实现逻辑**：侧边栏四页（任务 / 历史 / 模型 / 关于）+ 卡片式布局：任务页完成「粘贴链接 → 开始/取消 →
-  步骤进度 + 实时日志 → 打开文稿/预览排版」；历史页管理任务与产物；模型页按显存推荐、下载/取消/校验；
-  明暗双主题（`[ui].theme`，侧边栏一键切换并持久化）。
+- **实现逻辑**：侧边栏五页（任务 / 队列 / 历史 / 模型 / 关于）+ 卡片式布局：任务页完成「粘贴链接 → 开始/取消 →
+  步骤进度 + 实时日志 → 打开文稿/预览排版」；队列页多条链接顺序处理（逐条实时步骤与进度，可停止/重试失败项）；
+  历史页管理任务与产物（进度徽标 + 步骤明细 + 一键续跑/从任意步骤重跑）；模型页按显存推荐、下载/取消/校验；
+  关于页含 LLM 接入向导入口；明暗双主题（`[ui].theme`，侧边栏一键切换并持久化）。
+- **首启体验（v0.12.0）**：检测到未配置 LLM 时自动弹出接入向导——选预设/自定义 → 填 Key → 一键连通测试 → 保存；
+  以 `[ui].llm_wizard_done` 记录完成状态避免重复打扰；设置面板内置「测试连接」（同一服务、QThread 执行）。
 - **技术手段**：PySide6 / Qt（QThread + 信号槽跨线程回传事件与日志，logging handler 转 UI 信号）；
   `gui/theme.py` 设计 token + 全局 QSS（含对话框）；图标用 Lucide/line-md SVG 按主题色运行时重着色
   （QSvgRenderer）；应用图标由 `scripts/make_app_icon.py` 从 SVG 生成多尺寸 ICO 并写入 exe。
@@ -110,14 +113,17 @@
   `llm/providers.py` 内置 6 家服务商预设（OpenCode Go / DeepSeek / 硅基流动 / Kimi / 智谱 / 本地 Ollama），
   `test_connection` 用 1 token 最小请求验证并给出人话修复建议，`llm setup` 一键写配置（环境变量优先、不落盘 Key）。
 - **技术手段**：`vidar model list|recommend`、`vidar llm presets|test|setup`；统一请求头构造（含 OpenCode Go
-  会话头规范，客户端与测试共用）；rich 标记转义避免 `[llm]` 被吞；服务层接口（进度回调/断点续传/事件流）为
-  GUI 模型管理页与首启向导预留。
+  会话头规范，客户端与测试共用）；rich 标记转义避免 `[llm]` 被吞；服务层接口（进度回调/断点续传/事件流）供
+  GUI 模型管理页与接入向导复用（`gui/llm_wizard.py`：连通测试在 QThread 中跑，环境变量已提供 Key 时提示不落盘）。
 
 ### 批量任务队列
-- **实现逻辑**：`vidar batch <清单>` 顺序处理多条视频（一次一条），失败默认继续下一条（`--stop-on-error` 可选），
-  清单支持注释与 BOM；每条任务复用标准断点续跑语义。
-- **技术手段**：`vidar/batch.py`（read_sources / run_batch + 事件流 batch_start/batch_item/batch_finished），
-  事件带 batch_index/batch_total 供 GUI 队列页聚合展示。
+- **实现逻辑**：`vidar batch <清单>` 与 GUI「队列」页共享同一队列服务：顺序处理多条视频（一次一条），
+  失败默认继续下一条（`--stop-on-error` 可选），清单支持注释与 BOM；每条任务复用标准断点续跑语义。
+  GUI 队列页（v0.12.0）支持多行粘贴 / 文件导入（自动去重）、逐条实时显示当前步骤与进度，
+  「停止 / 重试失败项 / 移除所选」，与任务页互斥不并发。
+- **技术手段**：`vidar/batch.py`（read_sources / run_batch + 事件流 batch_start/batch_item/batch_finished +
+  `on_ctx` 回调暴露当前 RunContext，供 GUI 立即取消）；事件带 batch_index/batch_total 供队列页聚合；
+  GUI 侧 `BatchWorker(QThread)` 转发事件到主线程更新表格/进度/日志。
 
 ### 便携版构建与 GPU 按需安装
 - **实现逻辑**：PyInstaller onedir 打包 GUI 与 CLI 双 exe（共享运行时目录）。默认**精简包**（约 250MB，不含 CUDA，音频解码用 PyAV 无需 ffmpeg）；N 卡用户运行 `vidar gpu install` 从 PyPI 镜像安装 cuBLAS/cuDNN 实测最小集；`build_portable.ps1 -WithCuda` 可构建内置 CUDA 的完整版。模型目录外置（约 3GB，可复制）。

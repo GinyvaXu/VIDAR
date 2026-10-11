@@ -179,3 +179,37 @@ def test_run_batch_stop_on_error(monkeypatch, tmp_path: Path) -> None:  # noqa: 
     monkeypatch.setattr("vidar.pipeline.PipelineRunner", _FakeRunner)
     result = run_batch(Settings(), ["bad-source", "BV1bb411c7mD"], stop_on_error=True)
     assert [item.status for item in result.items] == ["failed", "pending"]
+
+
+def test_run_batch_on_ctx_cancel_stops_queue(monkeypatch, tmp_path: Path) -> None:  # noqa: ANN001
+    """on_ctx 暴露当前 RunContext（GUI「停止」用）：取消后条目 cancelled 且队列停止。"""
+    from vidar.batch import run_batch
+    from vidar.errors import CancelledError
+
+    monkeypatch.chdir(tmp_path)
+    seen: list[str] = []
+
+    class _FakeRunner:
+        def __init__(self, ctx, steps) -> None:  # noqa: ANN001
+            self.ctx = ctx
+
+        def run(self, *, from_step=None, to_step=None, dry_run=False) -> None:  # noqa: ANN001
+            if self.ctx.cancel_event.is_set():
+                raise CancelledError()
+            seen.append(self.ctx.source)
+
+    monkeypatch.setattr("vidar.pipeline.PipelineRunner", _FakeRunner)
+
+    def on_ctx(ctx) -> None:  # noqa: ANN001
+        if ctx.source == "BV1stop":
+            ctx.cancel()
+
+    result = run_batch(Settings(), ["BV1aa", "BV1stop", "BV1bb"], on_ctx=on_ctx)
+    assert seen == ["BV1aa"]  # 第三条未开始
+    assert [item.status for item in result.items] == ["done", "cancelled", "pending"]
+
+
+def test_ui_llm_wizard_flag_default() -> None:
+    from vidar.config import UiSettings
+
+    assert UiSettings().llm_wizard_done is False

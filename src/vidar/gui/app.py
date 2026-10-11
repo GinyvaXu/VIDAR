@@ -16,11 +16,12 @@ import sys
 import webbrowser
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QSize, Qt, QThread, Signal
+from PySide6.QtCore import QObject, QSize, Qt, QThread, QTimer, Signal
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
     QDialog,
+    QFileDialog,
     QFrame,
     QHBoxLayout,
     QHeaderView,
@@ -61,12 +62,14 @@ from ..pipeline import (
 )
 from ..utils.text import slugify
 from . import theme
+from .llm_wizard import LlmWizardDialog
 from .preview_dialog import PreviewDialog
 from .settings_dialog import SettingsDialog
 
 _STEP_TITLES = {step.name: step.title for step in default_steps()}  # type: ignore[attr-defined]
 _NAV_ITEMS = (
     ("task", "任务", "play"),
+    ("batch", "队列", "list"),
     ("history", "历史", "clock"),
     ("models", "模型", "cpu"),
     ("about", "关于", "info"),
@@ -189,6 +192,48 @@ class ModelDownloadWorker(QThread):
         self._cancelled = True
 
 
+class BatchWorker(QThread):
+    """批量队列：顺序处理多条来源；转发 batch_* 与流水线事件到 UI。
+
+    on_ctx 持有当前 RunContext，使「停止」可以立即取消正在跑的那一条
+    （run_batch 捕获 CancelledError 后停止队列并正常收尾）。
+    """
+
+    event = Signal(str, dict)
+    done = Signal(object)
+    error = Signal(str, str)
+
+    def __init__(self, settings: Settings, sources: list[str]) -> None:
+        super().__init__()
+        self._settings = settings
+        self._sources = list(sources)
+        self._ctx: RunContext | None = None
+
+    def run(self) -> None:
+        from ..batch import run_batch
+
+        try:
+            result = run_batch(
+                self._settings,
+                self._sources,
+                on_event=lambda event, data: self.event.emit(event, data),
+                on_ctx=self._keep_ctx,
+            )
+            self.done.emit(result)
+        except VidarError as exc:
+            self.error.emit(exc.message, exc.hint)
+        except Exception as exc:  # noqa: BLE001 - 兜底，保证 UI 不挂
+            self.error.emit(f"未预期错误：{exc}", "")
+
+    def _keep_ctx(self, ctx: object) -> None:
+        if isinstance(ctx, RunContext):
+            self._ctx = ctx
+
+    def cancel(self) -> None:
+        if self._ctx is not None:
+            self._ctx.cancel()
+
+
 class MainWindow(QMainWindow):
     def __init__(self, settings: Settings) -> None:
         super().__init__()
@@ -196,6 +241,11 @@ class MainWindow(QMainWindow):
         self.theme_name = theme.resolve_theme(settings.ui.theme)
         self.worker: PipelineWorker | None = None
         self.model_worker: ModelDownloadWorker | None = None
+        self.batch_worker: BatchWorker | None = None
+        self.batch_items: list[dict] = []  # {"source", "status", "error", "note"}
+        self._batch_running_sources: list[str] = []
+        self._batch_launched = 0
+        self._batch_done = 0
         self.last_key: str | None = None
         self._model_progress_state: tuple[float, int] | None = None
 
@@ -213,6 +263,9 @@ class MainWindow(QMainWindow):
         self.refresh_history()
         self.refresh_models()
         self._append_log("就绪：粘贴链接 → 开始。首次跑某条视频会自动解析并下载音频。")
+        if not settings.llm.configured and not settings.ui.llm_wizard_done:
+            # 首启引导：未配置 LLM 时自动弹接入向导（保存或手动关闭后不再打扰）
+            QTimer.singleShot(500, self._open_llm_wizard)
 
     # ------------------------------------------------------------------ #
     # 界面搭建
@@ -228,6 +281,7 @@ class MainWindow(QMainWindow):
         self.pages = QStackedWidget()
         layout.addWidget(self._build_sidebar())
         self.pages.addWidget(self._build_task_page())
+        self.pages.addWidget(self._build_batch_page())
         self.pages.addWidget(self._build_history_page())
         self.pages.addWidget(self._build_models_page())
         self.pages.addWidget(self._build_about_page())
@@ -396,6 +450,110 @@ class MainWindow(QMainWindow):
         self.preview_btn.clicked.connect(self._open_preview)
         return page
 
+    # ---- 队列页 ----
+    def _build_batch_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(24, 20, 24, 20)
+        layout.setSpacing(14)
+        layout.addLayout(
+            self._page_header(
+                "队列",
+                "多条链接顺序处理：一条失败不影响下一条；每条都复用断点续跑，可随时停止",
+            )
+        )
+
+        input_card, input_layout = _card()
+        input_title = QLabel("待处理链接（每行一个，可带 # 注释）")
+        input_title.setObjectName("CardTitle")
+        input_layout.addWidget(input_title)
+        self.batch_input = QPlainTextEdit()
+        self.batch_input.setPlaceholderText(
+            "BV1xx411c7mD\nhttps://www.bilibili.com/video/BV1xx411c7mD\n# 这行是注释"
+        )
+        self.batch_input.setFixedHeight(86)
+        input_layout.addWidget(self.batch_input)
+
+        input_row = QHBoxLayout()
+        self.batch_add_btn = QPushButton("加入队列")
+        self.batch_import_btn = QPushButton("从文件导入…")
+        self.batch_clear_btn = QPushButton("清空列表")
+        for button in (self.batch_add_btn, self.batch_import_btn, self.batch_clear_btn):
+            button.setIconSize(QSize(16, 16))
+        input_row.addWidget(self.batch_add_btn)
+        input_row.addWidget(self.batch_import_btn)
+        input_row.addStretch(1)
+        input_row.addWidget(self.batch_clear_btn)
+        input_layout.addLayout(input_row)
+        layout.addWidget(input_card)
+
+        queue_card, queue_layout = _card()
+        self.batch_table = QTableWidget(0, 4)
+        self.batch_table.setHorizontalHeaderLabels(["#", "来源", "状态", "说明"])
+        header = self.batch_table.horizontalHeader()
+        header.setSectionResizeMode(1, QHeaderView.Stretch)
+        header.setSectionResizeMode(3, QHeaderView.Stretch)
+        self.batch_table.verticalHeader().setVisible(False)
+        self.batch_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.batch_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.batch_table.setSelectionMode(QTableWidget.SingleSelection)
+        self.batch_table.setShowGrid(False)
+        self.batch_table.setFixedHeight(190)
+        queue_layout.addWidget(self.batch_table)
+
+        queue_row = QHBoxLayout()
+        self.batch_start_btn = QPushButton("开始队列")
+        self.batch_start_btn.setObjectName("Primary")
+        self.batch_stop_btn = QPushButton("停止")
+        self.batch_stop_btn.setObjectName("Danger")
+        self.batch_stop_btn.setEnabled(False)
+        self.batch_retry_btn = QPushButton("重试失败项")
+        self.batch_remove_btn = QPushButton("移除所选")
+        for button in (
+            self.batch_start_btn,
+            self.batch_stop_btn,
+            self.batch_retry_btn,
+            self.batch_remove_btn,
+        ):
+            button.setIconSize(QSize(16, 16))
+        queue_row.addWidget(self.batch_start_btn)
+        queue_row.addWidget(self.batch_stop_btn)
+        queue_row.addWidget(self.batch_retry_btn)
+        queue_row.addWidget(self.batch_remove_btn)
+        queue_row.addStretch(1)
+        queue_layout.addLayout(queue_row)
+
+        progress_row = QHBoxLayout()
+        self.batch_progress = QProgressBar()
+        self.batch_progress.setRange(0, 1000)
+        self.batch_progress.setValue(0)
+        self.batch_status = QLabel("队列为空：粘贴多条链接后「加入队列」")
+        self.batch_status.setObjectName("Muted")
+        progress_row.addWidget(self.batch_progress, 1)
+        progress_row.addWidget(self.batch_status)
+        queue_layout.addLayout(progress_row)
+        layout.addWidget(queue_card)
+
+        log_card, log_layout = _card()
+        log_title = QLabel("队列日志")
+        log_title.setObjectName("CardTitle")
+        log_layout.addWidget(log_title)
+        self.batch_log_view = QPlainTextEdit()
+        self.batch_log_view.setObjectName("LogView")
+        self.batch_log_view.setReadOnly(True)
+        self.batch_log_view.setMaximumBlockCount(2000)
+        log_layout.addWidget(self.batch_log_view, 1)
+        layout.addWidget(log_card, 1)
+
+        self.batch_add_btn.clicked.connect(self._batch_add)
+        self.batch_import_btn.clicked.connect(self._batch_import)
+        self.batch_clear_btn.clicked.connect(self._batch_clear)
+        self.batch_start_btn.clicked.connect(self._batch_start)
+        self.batch_stop_btn.clicked.connect(self._batch_stop)
+        self.batch_retry_btn.clicked.connect(self._batch_retry_failed)
+        self.batch_remove_btn.clicked.connect(self._batch_remove_selected)
+        return page
+
     # ---- 历史页 ----
     def _build_history_page(self) -> QWidget:
         page = QWidget()
@@ -559,9 +717,10 @@ class MainWindow(QMainWindow):
         steps_title.setObjectName("CardTitle")
         card_layout.addWidget(steps_title)
         for line in (
-            "1. 配置 LLM：设置 → 填 API Base / Key（或命令行 vidar llm setup <预设> --write）",
+            "1. 配置 LLM：点下方「LLM 接入向导」选服务商、填 Key、测连通（1 分钟）",
             "2. 下载模型：本页选档位下载（推荐 large-v3；N 卡首次使用可在设置中确认 device=auto）",
-            "3. 任务页粘贴链接 → 开始；完成后在历史页打开文稿 / 预览排版 / 导入微信读书",
+            "3. 任务页粘贴链接 → 开始；多条视频用「队列」页批量处理",
+            "4. 完成后在历史页打开文稿 / 预览排版 / 导入微信读书",
         ):
             label = QLabel(line)
             label.setWordWrap(True)
@@ -574,11 +733,12 @@ class MainWindow(QMainWindow):
         links_title.setObjectName("CardTitle")
         links_layout.addWidget(links_title)
         row = QHBoxLayout()
+        self.wizard_btn = QPushButton("LLM 接入向导")
         homepage_btn = QPushButton("项目主页")
         config_btn = QPushButton("打开配置文件")
         logs_btn = QPushButton("打开日志目录")
         output_btn = QPushButton("打开输出目录")
-        for button in (homepage_btn, config_btn, logs_btn, output_btn):
+        for button in (self.wizard_btn, homepage_btn, config_btn, logs_btn, output_btn):
             button.setIconSize(QSize(16, 16))
             row.addWidget(button)
         row.addStretch(1)
@@ -586,6 +746,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(links_card)
         layout.addStretch(1)
 
+        self.wizard_btn.clicked.connect(self._open_llm_wizard)
         homepage_btn.clicked.connect(
             lambda: webbrowser.open("https://github.com/GinyvaXu/VIDAR")
         )
@@ -625,6 +786,14 @@ class MainWindow(QMainWindow):
         self.open_out_btn.setIcon(theme.icon("folder-open", colors["text"], size=16))
         self.open_notes_btn.setIcon(theme.icon("file-text", colors["text"], size=16))
         self.preview_btn.setIcon(theme.icon("eye", colors["text"], size=16))
+        self.batch_start_btn.setIcon(theme.icon("play", "#FFFFFF", size=16))
+        self.batch_stop_btn.setIcon(theme.icon("square", colors["text"], size=16))
+        self.batch_retry_btn.setIcon(theme.icon("refresh-cw", colors["text"], size=16))
+        self.batch_remove_btn.setIcon(theme.icon("x", colors["text"], size=16))
+        self.batch_add_btn.setIcon(theme.icon("list", colors["text"], size=16))
+        self.batch_import_btn.setIcon(theme.icon("folder-open", colors["text"], size=16))
+        self.batch_clear_btn.setIcon(theme.icon("x", colors["text_muted"], size=16))
+        self.wizard_btn.setIcon(theme.icon("sparkles", colors["accent"], size=16))
         self.history_resume_btn.setIcon(theme.icon("play", "#FFFFFF", size=16))
         self.history_rerun_btn.setIcon(theme.icon("refresh-cw", colors["text"], size=16))
         self.history_open_out_btn.setIcon(theme.icon("folder-open", colors["text"], size=16))
@@ -661,7 +830,7 @@ class MainWindow(QMainWindow):
         if not source:
             QMessageBox.warning(self, "提示", "请先粘贴 BV 号或视频链接")
             return
-        if self.worker is not None and self.worker.isRunning():
+        if self._task_busy():
             QMessageBox.information(self, "提示", "已有任务在运行，请先等待或取消")
             return
 
@@ -927,7 +1096,7 @@ class MainWindow(QMainWindow):
         if not key:
             QMessageBox.information(self, "提示", "先在列表里选一条任务")
             return
-        if self.worker is not None and self.worker.isRunning():
+        if self._task_busy():
             QMessageBox.information(self, "提示", "已有任务在运行")
             return
         from_step = self._first_unfinished_step(key)
@@ -944,7 +1113,7 @@ class MainWindow(QMainWindow):
         if not key:
             QMessageBox.information(self, "提示", "先在列表里选一条任务")
             return
-        if self.worker is not None and self.worker.isRunning():
+        if self._task_busy():
             QMessageBox.information(self, "提示", "已有任务在运行")
             return
         row = self.history_detail.currentRow()
@@ -999,6 +1168,270 @@ class MainWindow(QMainWindow):
             if steps.get(name, {}).get("status") != "done":
                 return name
         return None
+
+    # ------------------------------------------------------------------ #
+    # 批量队列
+    # ------------------------------------------------------------------ #
+    def _task_busy(self) -> bool:
+        task_running = self.worker is not None and self.worker.isRunning()
+        batch_running = self.batch_worker is not None and self.batch_worker.isRunning()
+        return task_running or batch_running
+
+    def _append_batch_log(self, text: str) -> None:
+        self.batch_log_view.appendPlainText(text)
+        scrollbar = self.batch_log_view.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
+
+    def _refresh_batch_table(self) -> None:
+        labels = {
+            "pending": "等待",
+            "running": "运行中…",
+            "done": "完成 ✓",
+            "failed": "失败 ✗",
+            "cancelled": "已停止",
+        }
+        self.batch_table.setRowCount(0)
+        for index, item in enumerate(self.batch_items, start=1):
+            row = self.batch_table.rowCount()
+            self.batch_table.insertRow(row)
+            self.batch_table.setItem(row, 0, QTableWidgetItem(str(index)))
+            self.batch_table.setItem(row, 1, QTableWidgetItem(str(item["source"])))
+            self.batch_table.setItem(
+                row, 2, QTableWidgetItem(labels.get(str(item["status"]), "—"))
+            )
+            note = str(item.get("note") or "")
+            if item["status"] == "failed" and item.get("error"):
+                note = str(item["error"])
+            cell = QTableWidgetItem(note)
+            cell.setToolTip(note)
+            self.batch_table.setItem(row, 3, cell)
+        if not self.batch_items:
+            self.batch_status.setText("队列为空：粘贴多条链接后「加入队列」")
+        elif self.batch_worker is None or not self.batch_worker.isRunning():
+            pending = sum(1 for item in self.batch_items if item["status"] == "pending")
+            done = sum(1 for item in self.batch_items if item["status"] == "done")
+            failed = sum(1 for item in self.batch_items if item["status"] == "failed")
+            parts = [f"共 {len(self.batch_items)} 条", f"待处理 {pending}"]
+            if done:
+                parts.append(f"完成 {done}")
+            if failed:
+                parts.append(f"失败 {failed}")
+            self.batch_status.setText(" · ".join(parts) + "（点「开始队列」）")
+        self.batch_progress.setValue(
+            int(1000 * self._batch_done / self._batch_launched) if self._batch_launched else 0
+        )
+
+    def _batch_add_sources(self, sources: list[str]) -> int:
+        existing = {
+            item["source"] for item in self.batch_items if item["status"] == "pending"
+        }
+        added = 0
+        for source in sources:
+            text = source.strip()
+            if not text or text.startswith("#") or text in existing:
+                continue
+            existing.add(text)
+            self.batch_items.append(
+                {"source": text, "status": "pending", "error": "", "note": ""}
+            )
+            added += 1
+        return added
+
+    def _batch_add(self) -> None:
+        raw = self.batch_input.toPlainText()
+        added = self._batch_add_sources([line.strip() for line in raw.splitlines()])
+        if added:
+            self.batch_input.clear()
+            self._append_batch_log(f"已加入 {added} 条（去重后）。点「开始队列」处理。")
+        else:
+            self._append_batch_log("没有新增链接（空行 / 注释 / 重复项会被忽略）。")
+        self._refresh_batch_table()
+
+    def _batch_import(self) -> None:
+        path, _filter = QFileDialog.getOpenFileName(
+            self, "选择链接清单", "", "文本文件 (*.txt);;所有文件 (*)"
+        )
+        if not path:
+            return
+        from ..batch import read_sources
+
+        try:
+            sources = read_sources(Path(path))
+        except VidarError as exc:
+            QMessageBox.warning(
+                self, "导入失败", exc.message + (f"\n{exc.hint}" if exc.hint else "")
+            )
+            return
+        added = self._batch_add_sources(sources)
+        self._append_batch_log(f"从文件导入 {added} 条（共 {len(sources)} 行有效链接）。")
+        self._refresh_batch_table()
+
+    def _batch_clear(self) -> None:
+        if self._task_busy():
+            return
+        self.batch_items.clear()
+        self._batch_done = 0
+        self._batch_launched = 0
+        self.batch_log_view.clear()
+        self._append_batch_log("列表已清空。")
+        self._refresh_batch_table()
+
+    def _batch_remove_selected(self) -> None:
+        if self._task_busy():
+            return
+        row = self.batch_table.currentRow()
+        if row < 0 or row >= len(self.batch_items):
+            QMessageBox.information(self, "提示", "先在列表里选一行")
+            return
+        removed = self.batch_items.pop(row)
+        self._append_batch_log(f"已移除：{removed['source']}")
+        self._refresh_batch_table()
+
+    def _batch_retry_failed(self) -> None:
+        if self._task_busy():
+            return
+        reset = 0
+        for item in self.batch_items:
+            if item["status"] in ("failed", "cancelled"):
+                item["status"] = "pending"
+                item["error"] = ""
+                item["note"] = ""
+                reset += 1
+        self._refresh_batch_table()
+        if not reset:
+            self._append_batch_log("没有失败项需要重试。")
+            return
+        self._append_batch_log(f"已重置 {reset} 条失败/停止项，开始重跑。")
+        self._batch_start()
+
+    def _batch_start(self) -> None:
+        if self._task_busy():
+            QMessageBox.information(self, "提示", "已有任务在运行，请先等待或停止")
+            return
+        pending = [item for item in self.batch_items if item["status"] == "pending"]
+        if not pending:
+            QMessageBox.information(
+                self, "提示", "队列里没有「等待」状态的链接：先加入或重试失败项"
+            )
+            return
+        self._batch_running_sources = [str(item["source"]) for item in pending]
+        self._batch_launched = len(pending)
+        self._batch_done = 0
+        self.batch_log_view.clear()
+        self.batch_progress.setValue(0)
+        self.batch_status.setText(f"共 {self._batch_launched} 条，开始处理…")
+        self._set_batch_running(True)
+        self._append_batch_log(f"队列开始：{self._batch_launched} 条")
+
+        self.batch_worker = BatchWorker(self.settings, self._batch_running_sources)
+        self.batch_worker.event.connect(self._on_batch_event)
+        self.batch_worker.done.connect(self._on_batch_done)
+        self.batch_worker.error.connect(self._on_batch_error)
+        self.batch_worker.finished.connect(self._on_batch_finished)
+        self.batch_worker.start()
+
+    def _batch_stop(self) -> None:
+        if self.batch_worker is None or not self.batch_worker.isRunning():
+            return
+        self.batch_stop_btn.setEnabled(False)
+        self.batch_status.setText("已请求停止：当前条目安全退出后队列结束…")
+        self._append_batch_log("已请求停止…")
+        self.batch_worker.cancel()
+
+    def _set_batch_running(self, running: bool) -> None:
+        self.batch_start_btn.setEnabled(not running)
+        self.batch_stop_btn.setEnabled(running)
+        for button in (
+            self.batch_add_btn,
+            self.batch_import_btn,
+            self.batch_clear_btn,
+            self.batch_retry_btn,
+            self.batch_remove_btn,
+        ):
+            button.setEnabled(not running)
+
+    def _batch_item_for(self, source: str) -> dict | None:
+        for item in self.batch_items:
+            if item["source"] == source and item["status"] in ("pending", "running"):
+                return item
+        return None
+
+    def _on_batch_event(self, event: str, data: dict) -> None:
+        if event == "batch_item":
+            source = str(data.get("source") or "")
+            status = str(data.get("status") or "")
+            item = self._batch_item_for(source)
+            if item is not None:
+                item["status"] = status or item["status"]
+                item["error"] = str(data.get("error") or "")
+                item["note"] = ""
+            index = int(data.get("index") or 0)
+            total = int(data.get("total") or 0)
+            if status == "running":
+                self.batch_status.setText(f"第 {index}/{total} 条：{source}")
+                self._append_batch_log(f"▶ [{index}/{total}] {source}")
+            elif status == "done":
+                self._batch_done += 1
+                self._append_batch_log(f"✓ [{index}/{total}] {source} 完成")
+            elif status == "failed":
+                self._batch_done += 1
+                self._append_batch_log(
+                    f"✗ [{index}/{total}] {source} 失败：{data.get('error') or '未知错误'}"
+                )
+            elif status == "cancelled":
+                self._batch_done += 1
+                self._append_batch_log(f"■ [{index}/{total}] {source} 已停止")
+            self._refresh_batch_table()
+            return
+        if event == "batch_finished":
+            done = int(data.get("done") or 0)
+            failed = int(data.get("failed") or 0)
+            self._batch_done = self._batch_launched  # 收尾兜底（含被停止的剩余项）
+            self._refresh_batch_table()
+            self.batch_status.setText(
+                f"队列结束：完成 {done} / 失败 {failed}（失败项可「重试失败项」）"
+            )
+            self._append_batch_log(f"—— 队列结束：完成 {done}，失败 {failed} ——")
+            return
+        # 以下为转发自当前条目的流水线事件：更新「说明」列
+        batch_index = int(data.get("batch_index") or 0)
+        if not (1 <= batch_index <= len(self._batch_running_sources)):
+            return
+        source = self._batch_running_sources[batch_index - 1]
+        item = self._batch_item_for(source)
+        if item is None:
+            return
+        step = str(data.get("step") or "")
+        if event == "step_started":
+            item["note"] = str(data.get("title") or step)
+        elif event == "progress":
+            message = str(data.get("message") or "")
+            done = float(data.get("done") or 0)
+            total = float(data.get("total") or 0)
+            percent = f"（{100 * min(1.0, done / total):.0f}%）" if total > 0 else ""
+            item["note"] = f"{message}{percent}" if message else f"{step}{percent}"
+        elif event == "step_done":
+            item["note"] = f"{step} 完成"
+        elif event == "step_failed":
+            item["note"] = f"{step} 失败"
+        elif event == "run_finished":
+            item["note"] = "全部步骤完成"
+        self._refresh_batch_table()
+
+    def _on_batch_done(self, _result: object) -> None:
+        if not self.batch_status.text().startswith("队列结束"):
+            self.batch_status.setText("队列结束")
+        self.refresh_history()
+
+    def _on_batch_error(self, message: str, hint: str) -> None:
+        text = message + (f"\n\n{hint}" if hint else "")
+        self.batch_status.setText("队列失败")
+        self._append_batch_log(f"队列失败：{text}")
+        QMessageBox.critical(self, "队列失败", text)
+
+    def _on_batch_finished(self) -> None:
+        self._set_batch_running(False)
+        self.refresh_history()
 
     # ------------------------------------------------------------------ #
     # 结果与设置
@@ -1084,7 +1517,16 @@ class MainWindow(QMainWindow):
         dialog = SettingsDialog(self.settings, self)
         if dialog.exec() != QDialog.Accepted:
             return
-        data = deep_merge(export_settings_dict(self.settings), dialog.patch())
+        self._apply_and_save(dialog.patch(), "配置已保存")
+
+    def _open_llm_wizard(self) -> None:
+        dialog = LlmWizardDialog(self.settings, self)
+        if dialog.exec() == QDialog.Accepted:
+            self._apply_and_save(dialog.patch(), "LLM 配置已保存（接入向导）")
+
+    def _apply_and_save(self, patch: dict, message: str) -> bool:
+        """合并 patch → 校验 → 写回配置文件 → 生效（设置 / 接入向导共用）。"""
+        data = deep_merge(export_settings_dict(self.settings), patch)
         new_settings = Settings.model_validate(data)
         new_settings.config_path = self.settings.config_path
         target = new_settings.config_path or default_config_path()
@@ -1092,9 +1534,10 @@ class MainWindow(QMainWindow):
             write_config_dict(target, export_settings_dict(new_settings))
         except OSError as exc:
             QMessageBox.critical(self, "保存失败", f"{target}\n{exc}")
-            return
+            return False
         self.settings = new_settings
-        self._append_log(f"配置已保存：{target}")
+        self._append_log(f"{message}：{target}")
+        return True
 
     # ------------------------------------------------------------------ #
     # 模型页

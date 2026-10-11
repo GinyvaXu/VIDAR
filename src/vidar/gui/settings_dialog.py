@@ -10,12 +10,16 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFormLayout,
+    QHBoxLayout,
+    QLabel,
     QLineEdit,
+    QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
 from ..config import Settings
+from .llm_wizard import ConnectionTestWorker
 
 
 class SettingsDialog(QDialog):
@@ -67,10 +71,22 @@ class SettingsDialog(QDialog):
         self.bilingual = QCheckBox("双语排版（译文正文 + 原文小字）")
         self.bilingual.setChecked(settings.export.bilingual)
 
+        self.test_btn = QPushButton("测试连接")
+        self.test_status = QLabel("")
+        self.test_status.setObjectName("Muted")
+        self.test_status.setWordWrap(True)
+        self._test_worker: ConnectionTestWorker | None = None
+        test_row = QWidget()
+        test_layout = QHBoxLayout(test_row)
+        test_layout.setContentsMargins(0, 0, 0, 0)
+        test_layout.addWidget(self.test_btn)
+        test_layout.addWidget(self.test_status, 1)
+
         form = QFormLayout()
         form.addRow("LLM API Base", self.api_base)
         form.addRow("LLM API Key", self.api_key)
         form.addRow("LLM 模型", self.llm_model)
+        form.addRow("", test_row)
         form.addRow("ASR 模型（ID 或本地目录）", self.asr_model)
         form.addRow("ASR 设备（auto / cuda / cpu）", self.asr_device)
         form.addRow("HF 镜像（留空用官方源）", self.hf_endpoint)
@@ -98,6 +114,32 @@ class SettingsDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.addLayout(form)
         layout.addWidget(buttons)
+        self.test_btn.clicked.connect(self._test_connection)
+
+    def _test_connection(self) -> None:
+        """用当前表单值做 1 token 连通性测试（不打断对话框）。"""
+        if self._test_worker is not None and self._test_worker.isRunning():
+            return
+        from ..config import LlmSettings
+
+        llm = LlmSettings(
+            api_base=self.api_base.text().strip(),
+            api_key=self.api_key.text().strip(),
+            model=self.llm_model.text().strip() or "deepseek-chat",
+        )
+        self.test_btn.setEnabled(False)
+        self.test_status.setText("测试中…")
+        self._test_worker = ConnectionTestWorker(llm)
+        self._test_worker.done.connect(self._on_test_done)
+        self._test_worker.start()
+
+    def _on_test_done(self, ok: bool, message: str, hint: str) -> None:
+        self.test_btn.setEnabled(True)
+        prefix = "✓" if ok else "✗"
+        text = f"{prefix} {message}"
+        if hint:
+            text += f"　建议：{hint}"
+        self.test_status.setText(text)
 
     @staticmethod
     def _select_data(combo: QComboBox, value: str) -> None:
