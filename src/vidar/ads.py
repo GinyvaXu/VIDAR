@@ -129,7 +129,12 @@ def detect_ads(ctx: RunContext, refine: RefineResult) -> AdsResult:
             message=f"广告识别第 {position}/{total} 块…",
         )
         numbered = "\n".join(f"[{seg.idx}] {seg.refined_text}" for seg in chunk)
-        payload = client.complete_json(ads_prompt(numbered), system=ADS_SYSTEM, model=model)
+        try:
+            payload = client.complete_json(ads_prompt(numbered), system=ADS_SYSTEM, model=model)
+        except VidarError as exc:
+            # 单块失败不炸整步：该块不参与识别（日志可见，重跑本步可重试）
+            ctx.log.warning("第 %d/%d 块广告识别失败（跳过该块）：%s", position, total, exc)
+            continue
         raw.extend(_parse_ranges(payload))
         save_checkpoint(partial_path, {"ranges": raw, "done_blocks": position})
 

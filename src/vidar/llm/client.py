@@ -141,4 +141,8 @@ class LlmClient:
                 int(getattr(usage, "completion_tokens", 0) or 0),
             )
         content = response.choices[0].message.content or ""
+        if not content.strip():
+            # 空内容没有业务含义（所有调用都期望 JSON）：视为可重试错误，
+            # 常见于服务端内容过滤/超长输出被截断（不抛错，避免上层拿到空串静默出错）
+            raise LlmError("LLM 返回了空内容", hint="可能被服务端过滤或截断；本条将重试")
         return content

@@ -130,6 +130,51 @@ def test_m2_end_to_end_with_fake_llm(monkeypatch, tmp_path: Path) -> None:
     assert meta_payload["processing"]["ads"]["ranges"] == 1
 
 
+def test_refine_resilient_to_big_chunk_failure(monkeypatch, tmp_path: Path) -> None:  # noqa: ANN001
+    """主块失败不炸整步：小批补修成功，仍失败的部分回退原文。"""
+    import vidar.refine as refine_module
+    from vidar.errors import LlmError
+    from vidar.refine import refine_asr_result
+
+    class _FakeUsage:
+        prompt_tokens = 1
+        completion_tokens = 1
+
+    class _FakeClient:
+        def __init__(self, settings) -> None:  # noqa: ANN001
+            self.usage = _FakeUsage()
+
+        def complete_json(self, prompt: str, *, system: str = "", model: str | None = None) -> dict:
+            lines = [line for line in prompt.splitlines() if re.match(r"^\[\d+\]", line)]
+            if len(lines) > 3:  # 大块：模拟网关失败（超时/空返回）
+                raise LlmError("模拟大块失败")
+            items = []
+            for line in lines:
+                match = re.match(r"^\[(\d+)\]\s*(.*)$", line)
+                if match:
+                    items.append(
+                        {"index": int(match.group(1)), "text": match.group(2) + "（精修）"}
+                    )
+            return {"refined": items}
+
+    monkeypatch.setattr(refine_module, "LlmClient", _FakeClient)
+    monkeypatch.chdir(tmp_path)
+    ctx = RunContext(Settings(), "BV1cc411c7mD")
+    asr = AsrResult(
+        engine="fake",
+        model="fake",
+        segments=[
+            AsrSegment(idx=i, start=float(i * 10), end=float(i * 10 + 9), text="字" * 150)
+            for i in range(8)
+        ],
+    )
+    result = refine_asr_result(ctx, asr)
+    assert len(result.segments) == 8
+    refined_count = sum(1 for seg in result.segments if seg.refined_text.endswith("（精修）"))
+    assert refined_count == 3  # 小批补修成功的 3 段
+    assert all(seg.raw_text == "字" * 150 for seg in result.segments)  # 原文始终保留
+
+
 def test_resume_skips_done_steps(monkeypatch, tmp_path: Path) -> None:
     from vidar.pipeline.steps import ChaptersStep, ExportStep, RefineStep, SummarizeStep
 

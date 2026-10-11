@@ -55,9 +55,15 @@ def refine_asr_result(ctx: RunContext, asr: AsrResult) -> RefineResult:
             message=f"精修第 {position}/{total} 块…",
         )
         numbered = "\n".join(f"[{seg.idx}] {seg.text}" for seg in chunk)
-        payload = client.complete_json(
-            refine_prompt(numbered), system=REFINE_SYSTEM, model=model
-        )
+        try:
+            payload = client.complete_json(
+                refine_prompt(numbered), system=REFINE_SYSTEM, model=model
+            )
+        except VidarError as exc:
+            # 单块失败不炸整步：段落保持"缺失"，由补修小批与原文回退兜底
+            ctx.log.warning("第 %d/%d 块精修失败（稍后小批补修）：%s", position, total, exc)
+            save_checkpoint(partial_path, {"refined": refined_map})
+            continue
         items = payload.get("refined")
         if not isinstance(items, list):
             raise LlmError("精修返回格式不正确（缺少 refined 数组）", hint=str(payload)[:200])
@@ -70,15 +76,23 @@ def refine_asr_result(ctx: RunContext, asr: AsrResult) -> RefineResult:
                 refined_map[index] = text.strip()
         save_checkpoint(partial_path, {"refined": refined_map})
 
-    # 补修：一次追加请求处理主请求漏掉的段落
+    # 补修：把主请求漏掉的段落拆成小批（长输出易被网关截断/超时），逐批重试
     missing = [seg for seg in asr.segments if seg.idx not in refined_map]
     if missing:
-        ctx.log.info("补修 %d 段未返回结果的段落", len(missing))
-        numbered = "\n".join(f"[{seg.idx}] {seg.text}" for seg in missing)
-        try:
-            payload = client.complete_json(
-                refine_prompt(numbered), system=REFINE_SYSTEM, model=model
-            )
+        ctx.log.info("补修 %d 段未返回结果的段落（小批重试）", len(missing))
+        batches = chunk_by_chars(
+            missing, max_chars=max(600, min(800, ctx.settings.llm.chunk_chars))
+        )
+        for batch in batches:
+            ctx.raise_if_cancelled()
+            numbered = "\n".join(f"[{seg.idx}] {seg.text}" for seg in batch)
+            try:
+                payload = client.complete_json(
+                    refine_prompt(numbered), system=REFINE_SYSTEM, model=model
+                )
+            except VidarError as exc:
+                ctx.log.warning("补修小批（%d 段）仍失败：%s", len(batch), exc)
+                continue
             for item in payload.get("refined") or []:
                 if not isinstance(item, dict):
                     continue
@@ -86,8 +100,6 @@ def refine_asr_result(ctx: RunContext, asr: AsrResult) -> RefineResult:
                 text = item.get("text")
                 if isinstance(index, int) and isinstance(text, str) and text.strip():
                     refined_map[index] = text.strip()
-        except VidarError as exc:
-            ctx.log.warning("补修失败（不影响主流程）：%s", exc)
 
     segments: list[RefinedSegment] = []
     for seg in asr.segments:
