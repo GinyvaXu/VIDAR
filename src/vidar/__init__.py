@@ -19,7 +19,8 @@ def _read_version() -> str:
     for candidate in candidates:
         try:
             if candidate.exists():
-                return candidate.read_text(encoding="utf-8").strip()
+                # utf-8-sig：防御 Windows 编辑器写入的 BOM 混入版本字符串
+                return candidate.read_text(encoding="utf-8-sig").strip()
         except OSError:
             continue
     try:
