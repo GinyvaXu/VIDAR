@@ -90,7 +90,7 @@ class PreviewDialog(QDialog):
             ("字号：大", "large"),
         ):
             self.scale_combo.addItem(label, value)
-        self._select(self.scale_combo, "standard")
+        self._select(self.scale_combo, settings.export.pdf_scale)
         self.points_combo = QComboBox()
         for label, value in (
             ("要点截图：全部", "all"),

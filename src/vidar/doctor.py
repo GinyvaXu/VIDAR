@@ -83,7 +83,7 @@ def _check_gpu() -> CheckResult:
             timeout=20,
             creationflags=_CREATE_NO_WINDOW,
         )
-    except OSError as exc:
+    except (OSError, subprocess.SubprocessError) as exc:
         return CheckResult("NVIDIA GPU", STATUS_WARN, f"nvidia-smi 执行失败：{exc}")
     lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
     if result.returncode != 0 or not lines:
@@ -244,7 +244,10 @@ def _check_dirs(settings: Settings) -> CheckResult:
 
 
 def _check_disk() -> CheckResult:
-    usage = shutil.disk_usage(Path.cwd())
+    try:
+        usage = shutil.disk_usage(Path.cwd())
+    except OSError as exc:  # cwd 被删除等
+        return CheckResult("磁盘空间", STATUS_WARN, f"无法检测：{exc}")
     free_gb = usage.free / (1024**3)
     if free_gb >= 10:
         return CheckResult("磁盘空间", STATUS_OK, f"空闲 {free_gb:.1f} GB")
@@ -257,16 +260,23 @@ def _check_disk() -> CheckResult:
 
 
 def run_checks(settings: Settings, *, net: bool = False) -> list[CheckResult]:
+    def safe(fn, *args, **kwargs) -> CheckResult:  # noqa: ANN001
+        try:
+            return fn(*args, **kwargs)
+        except Exception as exc:  # noqa: BLE001 - 单项检查失败不应炸整个自检
+            name = getattr(fn, "__name__", "check").replace("_check_", "")
+            return CheckResult(name, STATUS_WARN, f"检查失败：{type(exc).__name__}: {exc}")
+
     results = [
-        _check_python(),
-        _check_ffmpeg(settings),
-        _check_ffprobe(settings),
-        _check_ytdlp(),
-        _check_gpu(),
-        _check_asr(settings),
-        _check_llm(settings, net=net),
-        _check_dirs(settings),
-        _check_disk(),
+        safe(_check_python),
+        safe(_check_ffmpeg, settings),
+        safe(_check_ffprobe, settings),
+        safe(_check_ytdlp),
+        safe(_check_gpu),
+        safe(_check_asr, settings),
+        safe(_check_llm, settings, net=net),
+        safe(_check_dirs, settings),
+        safe(_check_disk),
     ]
     if net:
         results.append(_check_bilibili())

@@ -14,6 +14,7 @@ from ..config import Settings
 from ..errors import CancelledError, PauseRelease
 from ..logging_setup import get_logger
 from ..models import VideoMeta
+from ..source import extract_page
 from ..utils.text import parse_bvid
 from .state import StateStore
 
@@ -22,21 +23,28 @@ def resolve_path(value: Path, base: Path | None = None) -> Path:
     value = Path(value)
     if value.is_absolute():
         return value
-    return (base or Path.cwd()) / value
+    if base is None:
+        # 便携包（frozen）：相对路径锚定到 exe 目录，避免从其他目录启动时写错位置
+        from ..config import exe_dir
+
+        base = exe_dir() or Path.cwd()
+    return base / value
 
 
 def make_key(source: str) -> str:
     bvid = parse_bvid(source)
     if bvid:
-        return bvid
+        # 分 P 视频用独立任务目录：BV1xx-p2（P1 保持旧键，兼容历史任务）
+        page = extract_page(source)
+        return f"{bvid}-p{page}" if page > 1 else bvid
     return "src-" + hashlib.sha1(source.encode("utf-8")).hexdigest()[:10]
 
 
 class RunContext:
-    def __init__(self, settings: Settings, source: str) -> None:
+    def __init__(self, settings: Settings, source: str, *, key: str | None = None) -> None:
         self.settings = settings
         self.source = source.strip()
-        self.key = make_key(self.source)
+        self.key = key or make_key(self.source)
         self.log = get_logger(self.key)
 
         self.work_dir = resolve_path(settings.paths.work_dir) / self.key

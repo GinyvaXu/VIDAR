@@ -32,6 +32,11 @@ from .context import RunContext
 ModelT = TypeVar("ModelT", bound=BaseModel)
 
 
+def _fingerprint(**fields: object) -> str:
+    """影响产物的配置指纹（json 稳定序列化，用于判断配置变化）。"""
+    return json.dumps(fields, ensure_ascii=False, sort_keys=True)
+
+
 def _load_json_model(ctx: RunContext, filename: str, model_type: type[ModelT]) -> ModelT:
     path = ctx.artifact(filename)
     if not path.exists():
@@ -167,6 +172,11 @@ class AsrStep:
     title = "语音识别（faster-whisper）"
     milestone: str | None = None
 
+    def config_fingerprint(self, ctx: RunContext) -> str:
+        fields = ctx.settings.asr.model_dump()
+        fields.pop("hf_endpoint", None)  # 只影响下载源，不影响识别结果
+        return _fingerprint(**fields)
+
     def run(self, ctx: RunContext) -> dict[str, str]:
         wav_name = ctx.state.record("audio").artifacts.get("wav") or "audio.wav"
         wav = ctx.work_dir / wav_name
@@ -190,6 +200,11 @@ class RefineStep:
     name = "refine"
     title = "文稿精修（LLM 段级）"
     milestone: str | None = None
+
+    def config_fingerprint(self, ctx: RunContext) -> str:
+        return _fingerprint(
+            model=ctx.settings.llm.model_for("refine"), chunk_chars=ctx.settings.llm.chunk_chars
+        )
 
     def run(self, ctx: RunContext) -> dict[str, str]:
         asr = _load_json_model(ctx, "asr.json", AsrResult)
@@ -218,6 +233,13 @@ class AdsStep:
     title = "广告识别（LLM）"
     milestone: str | None = None
 
+    def config_fingerprint(self, ctx: RunContext) -> str:
+        return _fingerprint(
+            enabled=ctx.settings.ads.enabled,
+            model=ctx.settings.llm.model_for("ads"),
+            chunk_chars=ctx.settings.llm.chunk_chars,
+        )
+
     def run(self, ctx: RunContext) -> dict[str, str]:
         stale = ctx.artifact("ads.json")
         if not ctx.settings.ads.enabled:
@@ -244,10 +266,12 @@ class AdsStep:
         else:
             ctx.log.info("广告识别完成：未发现广告段落")
 
-        # 广告区间变化时清理下游按块检查点（段号重编号后旧译文/旧摘要不可复用）
+        # 广告区间变化：下游产物按旧编号生成，必须整体重算（含老任务首次补跑 ads）
         if ads_range_key(previous) != ads_range_key(result):
             for name in ("translate.partial.json", "summarize.partial.json"):
                 ctx.artifact(name).unlink(missing_ok=True)
+            ctx.state.reset_from("ads", STEP_ORDER)
+            ctx.log.info("广告区间变化：已重置本步及后续步骤，按新编号重算下游产物")
         return {"ads": "ads.json"}
 
 
@@ -257,6 +281,15 @@ class TranslateStep:
     name = "translate"
     title = "双语翻译（LLM）"
     milestone: str | None = None
+
+    def config_fingerprint(self, ctx: RunContext) -> str:
+        settings = ctx.settings.translate
+        return _fingerprint(
+            enabled=settings.enabled,
+            target=settings.target_language,
+            skip_same=settings.skip_languages,
+            model=ctx.settings.llm.model_for("translate"),
+        )
 
     def run(self, ctx: RunContext) -> dict[str, str]:
         settings = ctx.settings.translate
@@ -299,6 +332,9 @@ class ChaptersStep:
     title = "章节切分（LLM）"
     milestone: str | None = None
 
+    def config_fingerprint(self, ctx: RunContext) -> str:
+        return _fingerprint(model=ctx.settings.llm.model_for("chapters"))
+
     def run(self, ctx: RunContext) -> dict[str, str]:
         refine = load_refine_effective(ctx)
         # 有译文时章节基于译文切分（文档语言与目标语言一致）
@@ -314,6 +350,12 @@ class SummarizeStep:
     name = "summarize"
     title = "摘要提炼（map-reduce）"
     milestone: str | None = None
+
+    def config_fingerprint(self, ctx: RunContext) -> str:
+        return _fingerprint(
+            model=ctx.settings.llm.model_for("summary"),
+            chunk_chars=ctx.settings.llm.chunk_chars,
+        )
 
     def run(self, ctx: RunContext) -> dict[str, str]:
         refine = load_refine_effective(ctx)
@@ -336,6 +378,15 @@ class ParagraphsStep:
     title = "语段编辑（LLM）"
     milestone: str | None = None
 
+    def config_fingerprint(self, ctx: RunContext) -> str:
+        paragraph = ctx.settings.paragraph
+        return _fingerprint(
+            enabled=paragraph.enabled,
+            min_chars=paragraph.min_chars,
+            max_chars=paragraph.max_chars,
+            model=ctx.settings.llm.model_for("paragraphs"),
+        )
+
     def run(self, ctx: RunContext) -> dict[str, str]:
         stale = ctx.artifact("paragraphs.json")
         if not ctx.settings.paragraph.enabled:
@@ -356,6 +407,16 @@ class FramesStep:
     name = "frames"
     title = "关键帧截图（抽帧）"
     milestone: str | None = None
+
+    def config_fingerprint(self, ctx: RunContext) -> str:
+        export = ctx.settings.export
+        return _fingerprint(
+            screenshots=export.screenshots,
+            video_max_height=export.video_max_height,
+            max_images=export.max_images,
+            min_gap_sec=export.min_gap_sec,
+            point_figures=export.point_figures,
+        )
 
     def run(self, ctx: RunContext) -> dict[str, str]:
         if not ctx.settings.export.screenshots:
@@ -382,6 +443,9 @@ class ExportStep:
     name = "export"
     title = "导出 Markdown 知识文档"
     milestone: str | None = None
+
+    def config_fingerprint(self, ctx: RunContext) -> str:
+        return _fingerprint(**ctx.settings.export.model_dump())
 
     def run(self, ctx: RunContext) -> dict[str, str]:
         meta = ctx.meta or _load_json_model(ctx, "meta.json", VideoMeta)

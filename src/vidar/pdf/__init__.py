@@ -105,8 +105,9 @@ class DocData:
                     continue
                 source = para.source_text if self.bilingual else ""
                 rows.append((para.start, para.text, source))
-            if rows:
-                return rows
+            # 语段产物存在时不做逐句回退：跨章段落已在起始章展示，
+            # 本章若无段起点宁可留白，也不重复渲染（避免同一段文字跨章出现两次）
+            return rows
 
         rows = []
         for segment in self.refine.segments:

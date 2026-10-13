@@ -317,6 +317,25 @@ def _load_raw_segment(payload: dict) -> SimpleNamespace:
     )
 
 
+def _shift_segment(seg: Any, offset: float) -> SimpleNamespace:
+    """把「切片音频」里 0 起算的段时间轴平移回整段音频（含词级时间戳）。"""
+    words = [
+        SimpleNamespace(
+            start=float(getattr(word, "start", 0.0) or 0.0) + offset,
+            end=float(getattr(word, "end", 0.0) or 0.0) + offset,
+            word=str(getattr(word, "word", "")),
+            probability=getattr(word, "probability", None),
+        )
+        for word in (getattr(seg, "words", None) or [])
+    ]
+    return SimpleNamespace(
+        start=float(seg.start) + offset,
+        end=float(seg.end) + offset,
+        text=str(seg.text),
+        words=words,
+    )
+
+
 def transcribe(ctx: RunContext, wav: Path) -> AsrResult:
     settings = ctx.settings.asr
     prepare_environment(settings)
@@ -401,7 +420,9 @@ def transcribe(ctx: RunContext, wav: Path) -> AsrResult:
         save_checkpoint(
             partial_path,
             {
-                "segments": saved_segments + [_dump_raw_segment(seg) for seg in raw_segments],
+                # 统一存整段音频的绝对时间轴：切片续跑的新段先平移再落盘
+                "segments": saved_segments
+                + [_dump_raw_segment(_shift_segment(seg, offset)) for seg in raw_segments],
                 "resume_from": last_end,
                 "language": str(getattr(info, "language", "") or language_hint or ""),
             },
@@ -440,7 +461,7 @@ def transcribe(ctx: RunContext, wav: Path) -> AsrResult:
             getattr(info, "language_probability", 0.0),
         )
 
-    result = _build_result(ctx, settings, saved_segments, raw_segments, detected)
+    result = _build_result(ctx, settings, saved_segments, raw_segments, detected, offset=offset)
     clear_checkpoint(partial_path)
     ctx.artifact("audio.resume.wav").unlink(missing_ok=True)
     return result
@@ -452,10 +473,22 @@ def _build_result(
     saved_segments: list[dict],
     raw_segments: list[Any],
     language: str,
+    *,
+    offset: float = 0.0,
 ) -> AsrResult:
-    """合并「检查点段 + 本轮新段」：幻觉过滤（仅新段）→ 段落合并 → AsrResult。"""
-    kept: list[Any] = [_load_raw_segment(item) for item in saved_segments]
+    """合并「检查点段 + 本轮新段」：幻觉过滤（仅新段）→ 段落合并 → AsrResult。
+
+    offset：切片续跑时，本轮新段是切片音频的 0 起算时间，需平移回整段音频。
+    """
+    kept: list[Any] = []
+    for item in saved_segments:
+        seg = _load_raw_segment(item)
+        if settings.filter_hallucinations and is_hallucination(seg.text, seg.start, seg.end):
+            continue  # 检查点里的幻听同样过滤（与非续跑行为保持一致）
+        kept.append(seg)
     for seg in raw_segments:
+        if offset:
+            seg = _shift_segment(seg, offset)
         if settings.filter_hallucinations and is_hallucination(seg.text, seg.start, seg.end):
             continue
         kept.append(seg)

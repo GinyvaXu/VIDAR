@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from xml.sax.saxutils import escape
 
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT
@@ -15,6 +16,26 @@ from reportlab.platypus import Paragraph, Spacer, Table, TableStyle
 FONT_DIR = Path(__file__).resolve().parent.parent / "assets" / "fonts"
 FONT_REGULAR = "NotoSerifSC"
 FONT_BOLD = "NotoSerifSC-Bold"
+
+
+def font_safe(text: str) -> str:
+    """剔除内置字体（GB2312 子集）不覆盖的码点（emoji/生僻字等），避免豆腐块。
+
+    注意：可安全作用于「已 XML 转义」的文本（ASCII 标记字符会原样保留）。
+    """
+    if not text:
+        return text
+    out: list[str] = []
+    for char in text:
+        if char in "\n\t":
+            out.append(char)
+            continue
+        try:
+            char.encode("gb2312")
+        except UnicodeEncodeError:
+            continue
+        out.append(char)
+    return "".join(out)
 
 INK = colors.HexColor("#1a1a1a")
 MUTED = colors.HexColor("#5f5f5f")
@@ -84,6 +105,7 @@ def draw_fitted_text(
     min_size: float = 5.5,
 ) -> None:
     """在 max_width 内尽量完整地绘制文本：先自动缩小字号，仍放不下才截断。"""
+    text = font_safe(text)
     current = size
     while current > min_size + 1e-9 and pdfmetrics.stringWidth(text, font, current) > max_width:
         current = max(min_size, current - 0.25)
@@ -116,16 +138,16 @@ def figure_flowables(
         image.drawWidth = max_height / ratio
     image.hAlign = "CENTER"
     label = (
-        f"图 {number}：{caption}（{format_clock(start)}）"
+        f"图 {number}：{font_safe(caption)}（{format_clock(start)}）"
         if caption
         else f"图 {number}（{format_clock(start)}）"
     )
-    return [Spacer(1, 5), image, Paragraph(label, caption_style), Spacer(1, 7)]
+    return [Spacer(1, 5), image, Paragraph(escape(label), caption_style), Spacer(1, 7)]
 
 
 def quote_flowable(text: str, style: ParagraphStyle) -> Table:
-    """金句引用块：左侧粗线 + 灰字。"""
-    table = Table([[Paragraph(text, style)]], colWidths=["100%"])
+    """金句引用块：左侧粗线 + 灰字（text 需已 XML 转义）。"""
+    table = Table([[Paragraph(font_safe(text), style)]], colWidths=["100%"])
     table.setStyle(
         TableStyle(
             [
@@ -157,13 +179,15 @@ def points_box(
     has_thumb = thumb_width > 0 and any(
         isinstance(item, tuple) and item[0] is not None for item in points
     )
-    rows: list[list] = [[Paragraph(title, title_style)]]
+    rows: list[list] = [[Paragraph(font_safe(title), title_style)]]
     for item in points:
         thumb, text = item if isinstance(item, tuple) else (None, item)
         if has_thumb:
-            rows.append([_thumb_flowable(thumb, thumb_width), Paragraph(text, item_style)])
+            rows.append(
+                [_thumb_flowable(thumb, thumb_width), Paragraph(font_safe(text), item_style)]
+            )
         else:
-            rows.append([Paragraph(text, item_style)])
+            rows.append([Paragraph(font_safe(text), item_style)])
 
     col_widths = [thumb_width, width - thumb_width] if has_thumb else [width]
     table = Table(rows, colWidths=col_widths, splitByRow=1)
@@ -199,7 +223,7 @@ def _thumb_flowable(path, width: float):  # noqa: ANN001 - Path | None（避免�
 
 def keyword_line(keywords: list[str], style: ParagraphStyle) -> Paragraph:
     joined = " / ".join(keywords) if keywords else "—"
-    return Paragraph(f"关键词：{joined}", style)
+    return Paragraph(f"关键词：{escape(font_safe(joined))}", style)
 
 
 __all__ = [
@@ -211,6 +235,7 @@ __all__ = [
     "RULE",
     "HAIRLINE",
     "register_fonts",
+    "font_safe",
     "para",
     "draw_fitted_text",
     "figure_flowables",

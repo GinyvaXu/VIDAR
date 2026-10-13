@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 
 from .models import (
@@ -99,10 +100,10 @@ def render_notes(
     published = meta.pubdate.strftime("%Y-%m-%d") if meta.pubdate else ""
     frontmatter = [
         "---",
-        f'title: "{meta.title}"',
+        f"title: {json.dumps(meta.title, ensure_ascii=False)}",
         f"bvid: {meta.bvid}",
         f"url: {meta.url}",
-        f'up: "{meta.up_name}"',
+        f"up: {json.dumps(meta.up_name, ensure_ascii=False)}",
         f"published: {published}",
         f'duration: "{format_clock(meta.duration_sec or 0)}"',
         f"processed_at: {processed}",

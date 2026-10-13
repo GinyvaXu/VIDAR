@@ -1,5 +1,4 @@
 """GPU（CUDA）运行时辅助安装：从 PyPI 镜像下载 nvidia-* wheel 并提取所需 DLL。
-
 默认按"最小可用集"提取（本机实测通过）：
     cublas64_12 + cublasLt64_12
     cudnn64_9 + cudnn_ops + cudnn_cnn + cudnn_graph + cudnn_heuristic + cudnn_engines_precompiled
@@ -18,7 +17,7 @@ from zipfile import ZipFile
 
 import httpx
 
-from .errors import VidarError
+from .errors import CancelledError, VidarError
 from .utils.download import CancelCheck, ProgressCallback, download_file
 
 MIRRORS: dict[str, str] = {
@@ -51,14 +50,40 @@ PACKAGES: dict[str, dict] = {
 }
 
 
-def _latest_win_wheel(client: httpx.Client, mirror: str, package: str) -> tuple[str, int]:
-    """从 PyPI 镜像的 JSON API 找到最新 Windows wheel 的 URL 与大小。"""
-    response = client.get(f"{mirror}/pypi/{package}/json")
-    response.raise_for_status()
+def _metadata_url(base: str, package: str) -> str:
+    """镜像的 JSON API 路径（阿里云镜像与官方 PyPI 的路径不同）。"""
+    if "aliyun" in base:
+        return f"{base}/web/json/{package}"
+    return f"{base}/pypi/{package}/json"
+
+
+def _sha256_file(path: Path) -> str:
+    import hashlib
+
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(4 * 1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _latest_win_wheel(client: httpx.Client, mirror: str, package: str) -> tuple[str, int, str]:
+    """从 PyPI 镜像的 JSON API 找到最新 Windows wheel 的（URL、大小、sha256）。"""
+    try:
+        response = client.get(_metadata_url(mirror, package))
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise VidarError(
+            f"下载源元数据请求失败：{package}",
+            hint=f"检查网络或更换下载源（当前：{mirror}）；错误：{exc}",
+        ) from exc
     for item in response.json().get("urls") or []:
         filename = str(item.get("filename") or "")
         if filename.endswith("win_amd64.whl"):
-            return str(item["url"]), int(item.get("size") or 0)
+            digests = item.get("digests") or {}
+            return str(item["url"]), int(item.get("size") or 0), str(
+                digests.get("sha256") or ""
+            )
     raise VidarError(
         f"镜像上未找到 {package} 的 Windows wheel",
         hint=f"更换下载源重试（当前：{mirror}）",
@@ -84,8 +109,8 @@ def install_gpu_runtime(
         with httpx.Client(timeout=httpx.Timeout(30.0, read=120.0), follow_redirects=True) as client:
             for index, (package, spec) in enumerate(PACKAGES.items(), start=1):
                 if should_cancel is not None and should_cancel():
-                    raise VidarError("已取消（已安装部分保留，可重跑）")
-                url, size = _latest_win_wheel(client, base, package)
+                    raise CancelledError("已取消（已安装部分保留，可重跑）")
+                url, size, sha256 = _latest_win_wheel(client, base, package)
                 wheel_path = temp / f"{package}.whl"
                 download_file(
                     url,
@@ -96,6 +121,12 @@ def install_gpu_runtime(
                     on_progress=on_progress,
                     should_cancel=should_cancel,
                 )
+                if sha256 and _sha256_file(wheel_path) != sha256:
+                    wheel_path.unlink(missing_ok=True)
+                    raise VidarError(
+                        f"wheel 校验失败：{package}（sha256 不符）",
+                        hint="镜像文件可能损坏，请更换下载源重试",
+                    )
 
                 prefix = f"{spec['dir']}/bin/"
                 with ZipFile(wheel_path) as archive:

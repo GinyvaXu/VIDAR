@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from .errors import LlmError, PauseRelease, VidarError
+from .errors import PauseRelease, VidarError
 from .llm.client import LlmClient
 from .llm.prompts import REFINE_SYSTEM, refine_prompt
 from .models import AsrResult, RefinedSegment, RefineResult
@@ -66,7 +66,12 @@ def refine_asr_result(ctx: RunContext, asr: AsrResult) -> RefineResult:
             continue
         items = payload.get("refined")
         if not isinstance(items, list):
-            raise LlmError("精修返回格式不正确（缺少 refined 数组）", hint=str(payload)[:200])
+            # 与「请求异常」同策略：该块视为无结果，稍后小批补修
+            ctx.log.warning(
+                "第 %d/%d 块精修返回缺少 refined 数组（稍后小批补修）", position, total
+            )
+            save_checkpoint(partial_path, {"refined": refined_map})
+            continue
         for item in items:
             if not isinstance(item, dict):
                 continue

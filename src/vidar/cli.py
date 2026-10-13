@@ -11,6 +11,7 @@ from typing import Any
 
 import typer
 from rich.console import Console
+from rich.markup import escape as markup_escape
 from rich.panel import Panel
 from rich.progress import (
     BarColumn,
@@ -64,9 +65,9 @@ def _setup_logs(settings: Settings, *, verbose: bool = False, quiet: bool = Fals
 
 
 def _fail(exc: VidarError, code: int = 1) -> None:
-    console.print(f"[bold red]✗ {exc.message}[/bold red]")
+    console.print(f"[bold red]✗ {markup_escape(exc.message)}[/bold red]")
     if exc.hint:
-        console.print(f"[dim]{exc.hint}[/dim]")
+        console.print(f"[dim]{markup_escape(exc.hint)}[/dim]")
     raise typer.Exit(code)
 
 
@@ -81,11 +82,17 @@ def run(
     asr_model: str | None = typer.Option(None, "--asr-model", help="ASR 模型档位，如 large-v3"),
     device: str | None = typer.Option(None, "--device", help="auto | cuda | cpu"),
     llm_model: str | None = typer.Option(None, "--llm-model", help="LLM 模型名"),
-    keep_media: bool = typer.Option(False, "--keep-media", help="保留下载的音视频文件"),
-    keep_audio: bool = typer.Option(False, "--keep-audio", help="仅保留音频文件"),
-    pdf: bool = typer.Option(False, "--pdf", help="导出 PDF（阅读/打印，默认报刊风）"),
-    docx: bool = typer.Option(False, "--docx", help="导出 Word（.docx，可再编辑）"),
-    epub: bool = typer.Option(False, "--epub", help="导出 EPUB 电子书（微信读书/墨水屏）"),
+    keep_media: bool | None = typer.Option(
+        None, "--keep-media/--no-keep-media", help="保留下载的音视频文件"
+    ),
+    keep_audio: bool | None = typer.Option(
+        None, "--keep-audio/--no-keep-audio", help="仅保留音频文件"
+    ),
+    pdf: bool | None = typer.Option(None, "--pdf/--no-pdf", help="导出 PDF（阅读/打印）"),
+    docx: bool | None = typer.Option(None, "--docx/--no-docx", help="导出 Word（可再编辑）"),
+    epub: bool | None = typer.Option(
+        None, "--epub/--no-epub", help="导出 EPUB 电子书（微信读书/墨水屏）"
+    ),
     pdf_style: str | None = typer.Option(
         None, "--pdf-style", help="PDF 风格：newspaper 报刊风 | paper 论文风"
     ),
@@ -98,20 +105,20 @@ def run(
     point_figures: str | None = typer.Option(
         None, "--point-figures", help="要点截图密度：all 全部 | sparse 隔一取一 | off 关闭"
     ),
-    screenshots: bool = typer.Option(
-        True, "--screenshots/--no-screenshots", help="关键帧截图（供 docx/pdf 配图）"
+    screenshots: bool | None = typer.Option(
+        None, "--screenshots/--no-screenshots", help="关键帧截图（供 docx/pdf 配图）"
     ),
-    translate: bool = typer.Option(
-        True, "--translate/--no-translate", help="外语视频自动双语翻译"
+    translate: bool | None = typer.Option(
+        None, "--translate/--no-translate", help="外语视频自动双语翻译"
     ),
-    ads: bool = typer.Option(
-        True, "--ads/--no-ads", help="LLM 识别广告段落并从成品省略（另存省略记录）"
+    ads: bool | None = typer.Option(
+        None, "--ads/--no-ads", help="LLM 识别广告段落并从成品省略（另存省略记录）"
     ),
     target_lang: str | None = typer.Option(
         None, "--target-lang", help="翻译目标语言：zh 中文 | en 英文 | ja 日文 …"
     ),
-    bilingual: bool = typer.Option(
-        True, "--bilingual/--no-bilingual", help="双语排版（译文正文 + 原文小字）"
+    bilingual: bool | None = typer.Option(
+        None, "--bilingual/--no-bilingual", help="双语排版（译文正文 + 原文小字）"
     ),
     from_step: str | None = typer.Option(None, "--from", help="从指定步骤开始（重置该步及后续）"),
     to_step: str | None = typer.Option(None, "--to", help="执行到指定步骤为止"),
@@ -128,16 +135,18 @@ def run(
         overrides.setdefault("asr", {})["device"] = device
     if llm_model:
         overrides.setdefault("llm", {})["model"] = llm_model
-    if keep_media:
-        overrides.setdefault("export", {})["keep_media"] = True
-    if keep_audio:
-        overrides.setdefault("export", {})["keep_audio"] = True
-    if pdf or pdf_style or pdf_mode:
+    if keep_media is not None:
+        overrides.setdefault("export", {})["keep_media"] = keep_media
+    if keep_audio is not None:
+        overrides.setdefault("export", {})["keep_audio"] = keep_audio
+    if pdf is not None:
+        overrides.setdefault("export", {})["pdf"] = pdf
+    elif pdf_style or pdf_mode:
         overrides.setdefault("export", {})["pdf"] = True
-    if docx:
-        overrides.setdefault("export", {})["docx"] = True
-    if epub:
-        overrides.setdefault("export", {})["epub"] = True
+    if docx is not None:
+        overrides.setdefault("export", {})["docx"] = docx
+    if epub is not None:
+        overrides.setdefault("export", {})["epub"] = epub
     if pdf_style:
         overrides.setdefault("export", {})["pdf_style"] = pdf_style
     if pdf_mode:
@@ -146,16 +155,16 @@ def run(
         overrides.setdefault("export", {})["pdf_scale"] = pdf_scale
     if point_figures:
         overrides.setdefault("export", {})["point_figures"] = point_figures
-    if not screenshots:
-        overrides.setdefault("export", {})["screenshots"] = False
-    if not translate:
-        overrides.setdefault("translate", {})["enabled"] = False
-    if not ads:
-        overrides.setdefault("ads", {})["enabled"] = False
+    if screenshots is not None:
+        overrides.setdefault("export", {})["screenshots"] = screenshots
+    if translate is not None:
+        overrides.setdefault("translate", {})["enabled"] = translate
+    if ads is not None:
+        overrides.setdefault("ads", {})["enabled"] = ads
     if target_lang:
         overrides.setdefault("translate", {})["target_language"] = target_lang
-    if not bilingual:
-        overrides.setdefault("export", {})["bilingual"] = False
+    if bilingual is not None:
+        overrides.setdefault("export", {})["bilingual"] = bilingual
 
     try:
         settings = _load(config, overrides)
@@ -266,7 +275,7 @@ def pdf(
         return
 
     for kind, path in artifacts.items():
-        console.print(f"[green]✓[/green] {kind} → [cyan]{path}[/cyan]")
+        console.print(f"[green]✓[/green] {kind} → [cyan]{markup_escape(str(path))}[/cyan]")
     if open_file and "pdf" in artifacts:
         _open_path(artifacts["pdf"])
 
@@ -296,7 +305,7 @@ def epub(
         return
 
     for kind, path in artifacts.items():
-        console.print(f"[green]✓[/green] {kind} → [cyan]{path}[/cyan]")
+        console.print(f"[green]✓[/green] {kind} → [cyan]{markup_escape(str(path))}[/cyan]")
     console.print(
         "[dim]导入方法：微信读书 →「我的」上方搜索「传书到手机」"
         "（或网页版 reader.qq.com）→ 上传该 EPUB 文件[/dim]"
@@ -329,20 +338,21 @@ def batch(
         _fail(exc, code=2)
         return
 
-    console.print(f"[bold]批量任务[/bold]：{len(sources)} 条（清单：{file}）")
+    console.print(f"[bold]批量任务[/bold]：{len(sources)} 条（清单：{markup_escape(str(file))}）")
 
     def on_event(event: str, data: dict) -> None:
         if event != "batch_item":
             return
         status = str(data.get("status", ""))
         index, total = data.get("index"), data.get("total")
-        source = data.get("source")
+        source = markup_escape(str(data.get("source")))
         if status == "running":
             console.print(f"[cyan]▶ [{index}/{total}] {source}[/cyan]")
         elif status == "done":
             console.print(f"[green]✓ [{index}/{total}] {source}[/green]")
         elif status == "failed":
-            console.print(f"[red]✗ [{index}/{total}] {source}：{data.get('error', '')}[/red]")
+            error = markup_escape(str(data.get("error", "")))
+            console.print(f"[red]✗ [{index}/{total}] {source}：{error}[/red]")
         elif status == "cancelled":
             console.print(f"[yellow]■ [{index}/{total}] {source} 已取消[/yellow]")
 
@@ -370,7 +380,11 @@ def batch(
         "pending": "未执行",
     }
     for item in result.items:
-        table.add_row(item.source, labels.get(item.status, item.status), item.error)
+        table.add_row(
+            markup_escape(item.source),
+            labels.get(item.status, item.status),
+            markup_escape(item.error or ""),
+        )
     console.print(table)
     summary = f"完成 {result.done_count}/{len(result.items)}"
     if result.failed:

@@ -76,10 +76,18 @@ class PipelineRunner:
     ) -> str:
         """执行选中步骤；返回 'finished' | 'paused' | 'dry-run'。"""
         selected = self.select(from_step, to_step)
-        if from_step:
+        if from_step and not dry_run:
             reset = self.ctx.state.reset_from(from_step, self.order)
             if reset:
                 console.print(f"[yellow]已重置步骤：{', '.join(reset)}[/yellow]")
+        elif not dry_run and not to_step:
+            # 配置指纹变化（如关闭广告识别、换翻译语言）→ 自动从最早受影响步骤重跑
+            stale = self._first_stale_step()
+            if stale is not None:
+                reset = self.ctx.state.reset_from(stale, self.order)
+                console.print(
+                    f"[yellow]检测到配置变化，已重置步骤：{', '.join(reset)}[/yellow]"
+                )
 
         self.render_plan(selected)
         if dry_run:
@@ -106,11 +114,28 @@ class PipelineRunner:
         self.ctx.emit("run_finished")
         return "finished"
 
+    def _first_stale_step(self) -> str | None:
+        """找出首个「配置指纹已变化」的已完成步骤。
+
+        兼容旧任务：state 中没有指纹记录的步骤直接跳过（不触发重跑）。
+        """
+        for step in self.steps:
+            record = self.ctx.state.record(step.name)
+            if record.status is not StepStatus.DONE or not record.fingerprint:
+                continue
+            fingerprint = getattr(step, "config_fingerprint", None)
+            if not callable(fingerprint):
+                continue
+            if fingerprint(self.ctx) != record.fingerprint:
+                return step.name
+        return None
+
     def _run_step(self, step: Step) -> None:
         self.ctx.state.mark_running(step.name)
         self.ctx.emit("step_started", step=step.name, title=step.title)
         started = time.perf_counter()
         self.ctx.log.info("开始 %s（%s）", step.name, step.title)
+        fingerprint = getattr(step, "config_fingerprint", None)
         try:
             artifacts = step.run(self.ctx)
         except PauseRelease:
@@ -136,7 +161,11 @@ class PipelineRunner:
             raise VidarError(f"步骤「{step.title}」发生未预期错误：{exc}") from exc
 
         elapsed = time.perf_counter() - started
-        self.ctx.state.mark_done(step.name, artifacts)
+        self.ctx.state.mark_done(
+            step.name,
+            artifacts,
+            fingerprint=fingerprint(self.ctx) if callable(fingerprint) else None,
+        )
         self.ctx.emit("step_done", step=step.name, title=step.title, elapsed=elapsed)
         self.ctx.log.info("完成 %s，用时 %.1fs", step.name, elapsed)
 

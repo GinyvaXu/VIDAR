@@ -34,6 +34,7 @@ from .theme import (
     RULE,
     draw_fitted_text,
     figure_flowables,
+    font_safe,
     para,
     points_box,
     quote_flowable,
@@ -104,9 +105,17 @@ def _masthead(data: DocData, styles: dict) -> tuple[list, float]:
             ]
         )
     )
-    parts += [rule, Spacer(1, 9), Paragraph(escape(meta.title), styles["title"]), Spacer(1, 7)]
+    parts += [
+        rule,
+        Spacer(1, 9),
+        Paragraph(escape(font_safe(meta.title)), styles["title"]),
+        Spacer(1, 7),
+    ]
     if data.summary.one_liner:
-        parts += [Paragraph(escape(data.summary.one_liner), styles["lead"]), Spacer(1, 9)]
+        parts += [
+            Paragraph(escape(font_safe(data.summary.one_liner)), styles["lead"]),
+            Spacer(1, 9),
+        ]
 
     cover = data.cover_image()
     if cover is not None:
@@ -225,8 +234,9 @@ def build_newspaper(data: DocData) -> Path:
             head_block.append(Paragraph(escape(chapter.summary), styles["chapter_lead"]))
         story.append(KeepTogether(head_block))
 
-        if chapter.quote:
-            story += [Spacer(1, 3), quote_flowable(escape(chapter.quote), styles["quote"])]
+        quote = data.chapter_quote(chapter)
+        if quote:
+            story += [Spacer(1, 3), quote_flowable(escape(quote), styles["quote"])]
 
         for start, caption, path in data.chapter_figures(chapter):
             story += figure_flowables(

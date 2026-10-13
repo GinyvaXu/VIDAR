@@ -20,6 +20,22 @@ LATIN_BODY = "Times New Roman"
 LATIN_HEAD = "Microsoft YaHei"
 GRAY = RGBColor(0x5F, 0x5F, 0x5F)
 IMAGE_WIDTH_CM = 13.0
+IMAGE_MAX_HEIGHT_CM = 21.5  # A4 文本区高度上限（含图注留白）
+
+
+def _add_picture_fitted(document, path, *, width_cm: float) -> None:  # noqa: ANN001
+    """插图：固定宽度；竖版截图（高宽比过大）按文本区高度封顶，避免溢出页面。"""
+    from PIL import Image
+
+    with Image.open(path) as image:
+        ratio = image.height / max(image.width, 1)
+    width = Cm(width_cm)
+    height = Cm(width_cm * ratio)
+    if width_cm * ratio > IMAGE_MAX_HEIGHT_CM:
+        height = Cm(IMAGE_MAX_HEIGHT_CM)
+        width = Cm(IMAGE_MAX_HEIGHT_CM / ratio)
+    document.add_picture(str(path), width=width, height=height)
+    document.paragraphs[-1].alignment = WD_ALIGN_PARAGRAPH.CENTER
 
 
 def _set_fonts(element, *, east: str, latin: str) -> None:  # noqa: ANN001
@@ -136,12 +152,12 @@ def build_docx(data: DocData, output_path: Path) -> Path:
         )
         if chapter.summary:
             _body(document, chapter.summary, size=10, gray=True)
-        if chapter.quote:
-            _body(document, f"— {chapter.quote}", size=10, gray=True, indent=0.6)
+        quote = data.chapter_quote(chapter)
+        if quote:
+            _body(document, f"— {quote}", size=10, gray=True, indent=0.6)
 
         for start, caption, path in data.chapter_figures(chapter):
-            document.add_picture(str(path), width=Cm(IMAGE_WIDTH_CM))
-            document.paragraphs[-1].alignment = WD_ALIGN_PARAGRAPH.CENTER
+            _add_picture_fitted(document, path, width_cm=IMAGE_WIDTH_CM)
             caption_paragraph = document.add_paragraph()
             caption_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
             label = (

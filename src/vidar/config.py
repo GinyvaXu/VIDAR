@@ -59,6 +59,36 @@ for _legacy_name, _legacy_target in list(_FLAT_ENV_MAP.items()):
         _FLAT_ENV_MAP[_legacy_name.replace(ENV_PREFIX, LEGACY_ENV_PREFIX, 1)] = _legacy_target
 
 
+def _flat_env_priority(name: str) -> tuple[int, str]:
+    """同名目标的环境变量优先级：VIDAR_ > BILIKING_ > 官方 SDK 命名。"""
+    if name.startswith(ENV_PREFIX):
+        group = 0
+    elif name.startswith(LEGACY_ENV_PREFIX):
+        group = 1
+    else:
+        group = 2
+    return (group, name)
+
+
+# LLM Key 环境变量（按优先级）：用于「环境变量已提供 Key 则不落盘」的保护
+_LLM_KEY_ENV_NAMES: tuple[str, ...] = (
+    "VIDAR_LLM_API_KEY",
+    "BILIKING_LLM_API_KEY",
+    "OPENCODE_GO_API_KEY",
+    "OPENCODE_API_KEY",
+    "OPENAI_API_KEY",
+)
+
+
+def llm_key_from_env() -> str:
+    """当前环境变量提供的 LLM Key（取第一个非空）。"""
+    for name in _LLM_KEY_ENV_NAMES:
+        value = os.environ.get(name, "").strip()
+        if value:
+            return value
+    return ""
+
+
 class PathsSettings(BaseModel):
     output_dir: Path = Path("output")
     work_dir: Path = Path("work")
@@ -227,22 +257,35 @@ def resolve_config_path(explicit: Path | None) -> Path | None:
 
 def _env_overrides() -> dict[str, Any]:
     data: dict[str, Any] = {}
+
+    def assign(section: str, key: str, value: str) -> None:
+        """同一目标只取第一个（优先级见 _flat_env_priority），避免依赖环境变量遍历顺序。"""
+        node = data.setdefault(section, {})
+        if key not in node:
+            node[key] = value
+
+    # 1) 扁平写法：VIDAR_ 命名优先，其次旧前缀，最后官方 SDK 命名
+    flat_keys = sorted(
+        (name for name in os.environ if name in _FLAT_ENV_MAP), key=_flat_env_priority
+    )
+    for raw_key in flat_keys:
+        raw_value = os.environ.get(raw_key, "")
+        if not raw_value:
+            continue
+        section, key = _FLAT_ENV_MAP[raw_key]
+        assign(section, key, raw_value)
+    # 2) 嵌套写法 VIDAR_ASR__MODEL（旧前缀 BILIKING_ 同样支持）
     for raw_key, raw_value in os.environ.items():
         if not raw_value:
             continue
-        # 1) 扁平映射
-        if raw_key in _FLAT_ENV_MAP:
-            section, key = _FLAT_ENV_MAP[raw_key]
-            data.setdefault(section, {})[key] = raw_value
-            continue
-        # 2) 嵌套写法 VIDAR_ASR__MODEL（旧前缀 BILIKING_ 同样支持）
         for prefix in (ENV_PREFIX, LEGACY_ENV_PREFIX):
             if raw_key.startswith(prefix) and "__" in raw_key:
                 path = raw_key[len(prefix) :].split("__")
                 node = data
                 for part in path[:-1]:
                     node = node.setdefault(part.lower(), {})
-                node[path[-1].lower()] = raw_value
+                target_key = path[-1].lower()
+                node.setdefault(target_key, raw_value)
                 break
     return data
 
@@ -256,7 +299,8 @@ def load_settings(
     path = resolve_config_path(config_path)
     if path is not None:
         try:
-            data = _deep_merge(data, tomllib.loads(path.read_text(encoding="utf-8")))
+            # utf-8-sig：容忍 Windows 编辑器写入的 BOM（否则 tomllib 解析失败）
+            data = _deep_merge(data, tomllib.loads(path.read_text(encoding="utf-8-sig")))
         except tomllib.TOMLDecodeError as exc:
             raise ConfigError(f"配置文件解析失败：{path}", hint=str(exc)) from exc
     data = _deep_merge(data, _env_overrides())
@@ -285,10 +329,17 @@ def dump_settings(settings: Settings) -> dict[str, Any]:
     return data
 
 
-def export_settings_dict(settings: Settings) -> dict[str, Any]:
-    """导出完整配置（含真实密钥），用于写回配置文件。"""
+def export_settings_dict(settings: Settings, *, protect_env_secrets: bool = True) -> dict[str, Any]:
+    """导出完整配置（含真实密钥），用于写回配置文件。
+
+    protect_env_secrets：环境变量提供的 LLM Key 不落盘（继续由环境变量提供），
+    只有用户在设置里显式填写了不同的 Key 才会写入——与 CLI `llm setup` 的规则一致。
+    """
     data = settings.model_dump(mode="json")
     data.pop("config_path", None)
+    env_key = llm_key_from_env()
+    if protect_env_secrets and env_key and data.get("llm", {}).get("api_key") == env_key:
+        data["llm"]["api_key"] = ""
     return data
 
 

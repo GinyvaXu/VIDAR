@@ -116,17 +116,27 @@ class PipelineWorker(QThread):
     failed = Signal(str, str)
     ok = Signal()
 
-    def __init__(self, settings: Settings, source: str, from_step: str | None) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        source: str,
+        from_step: str | None,
+        key: str | None = None,
+    ) -> None:
         super().__init__()
         self._settings = settings
         self._source = source
         self._from_step = from_step
+        self._key = key
+        self._cancel_requested = False
         self.ctx: RunContext | None = None
 
     def run(self) -> None:
         try:
-            ctx = RunContext(self._settings, self._source)
+            ctx = RunContext(self._settings, self._source, key=self._key)
             self.ctx = ctx
+            if self._cancel_requested:  # 启动前就被取消（ctx 尚未创建时的取消意图）
+                ctx.cancel()
             ctx.on_event = lambda event, data: self.event.emit(event, data)
             status = PipelineRunner(ctx, default_steps()).run(from_step=self._from_step)  # type: ignore[arg-type]
             if status == "paused":
@@ -141,6 +151,7 @@ class PipelineWorker(QThread):
             self.failed.emit(f"未预期错误：{exc}", "")
 
     def cancel(self) -> None:
+        self._cancel_requested = True
         if self.ctx is not None:
             self.ctx.cancel()
 
@@ -208,6 +219,7 @@ class BatchWorker(QThread):
         self._settings = settings
         self._sources = list(sources)
         self._ctx: RunContext | None = None
+        self._cancel_requested = False
 
     def run(self) -> None:
         from ..batch import run_batch
@@ -228,8 +240,11 @@ class BatchWorker(QThread):
     def _keep_ctx(self, ctx: object) -> None:
         if isinstance(ctx, RunContext):
             self._ctx = ctx
+            if self._cancel_requested:  # 队列刚启动就被取消
+                ctx.cancel()
 
     def cancel(self) -> None:
+        self._cancel_requested = True
         if self._ctx is not None:
             self._ctx.cancel()
 
@@ -247,6 +262,7 @@ class MainWindow(QMainWindow):
         self._batch_launched = 0
         self._batch_done = 0
         self.last_key: str | None = None
+        self._pending_key: str | None = None  # 历史续跑时显式指定的任务目录键
         self._model_progress_state: tuple[float, int] | None = None
 
         self.setWindowTitle("VIDAR — B站视频知识提取")
@@ -261,7 +277,7 @@ class MainWindow(QMainWindow):
         self._apply_theme()
         self._render_steps({})
         self.refresh_history()
-        self.refresh_models()
+        QTimer.singleShot(80, self.refresh_models)  # 显存/CUDA 检测较重：窗口先出来再刷新
         self._append_log("就绪：粘贴链接 → 开始。首次跑某条视频会自动解析并下载音频。")
         if not settings.llm.configured and not settings.ui.llm_wizard_done:
             # 首启引导：未配置 LLM 时自动弹接入向导（保存或手动关闭后不再打扰）
@@ -613,9 +629,15 @@ class MainWindow(QMainWindow):
 
         self.history_resume_btn.clicked.connect(self._history_resume)
         self.history_rerun_btn.clicked.connect(self._history_rerun_from_selected)
-        self.history_open_out_btn.clicked.connect(lambda: self._open_result(notes=False))
-        self.history_open_notes_btn.clicked.connect(lambda: self._open_result(notes=True))
-        self.history_preview_btn.clicked.connect(self._open_preview)
+        self.history_open_out_btn.clicked.connect(
+            lambda: self._open_result(notes=False, prefer_history=True)
+        )
+        self.history_open_notes_btn.clicked.connect(
+            lambda: self._open_result(notes=True, prefer_history=True)
+        )
+        self.history_preview_btn.clicked.connect(
+            lambda: self._open_preview(prefer_history=True)
+        )
         self.history_refresh_btn.clicked.connect(self.refresh_history)
         return page
 
@@ -841,7 +863,11 @@ class MainWindow(QMainWindow):
         self.log_view.clear()
         self._set_running(True)
 
-        self.worker = PipelineWorker(self.settings, source, self.from_combo.currentData())
+        pending_key = self._pending_key
+        self._pending_key = None
+        self.worker = PipelineWorker(
+            self.settings, source, self.from_combo.currentData(), key=pending_key
+        )
         self.worker.event.connect(self._on_event)
         self.worker.failed.connect(self._on_failed)
         self.worker.ok.connect(self._on_ok)
@@ -943,6 +969,8 @@ class MainWindow(QMainWindow):
         self.status_label.setText("完成 ✓")
 
     def _on_worker_finished(self) -> None:
+        if self.sender() is not self.worker:  # 旧 worker 的迟到信号（已启动新任务）
+            return
         self._set_running(False)
         self.refresh_history()
 
@@ -1106,7 +1134,7 @@ class MainWindow(QMainWindow):
             )
             return
         self._append_log(f"继续任务 {key}：从 {from_step} 步骤续跑")
-        self._start_with(source, from_step)
+        self._start_with(source, from_step, key=key)
 
     def _history_rerun_from_selected(self) -> None:
         key, source = self._selected_history_source()
@@ -1134,18 +1162,20 @@ class MainWindow(QMainWindow):
         if answer != QMessageBox.Yes:
             return
         self._append_log(f"重跑任务 {key}：从 {step} 步骤开始（后续步骤将重算）")
-        self._start_with(source, step)
+        self._start_with(source, step, key=key)
 
-    def _start_with(self, source: str, from_step: str | None) -> None:
+    def _start_with(self, source: str, from_step: str | None, key: str | None = None) -> None:
         self.url_edit.setText(source)
         index = STEP_ORDER.index(from_step) + 1 if from_step in STEP_ORDER else 0
         self.from_combo.setCurrentIndex(index)
+        self._pending_key = key
         self.nav.setCurrentRow(0)
         self._start()
 
     def _load_history_item(self, item: QListWidgetItem) -> None:
         data = item.data(Qt.UserRole) or {}
         self.url_edit.setText(str(data.get("url") or data.get("key") or ""))
+        self._pending_key = str(data.get("key") or "") or None
         from_step = self._first_unfinished_step(str(data.get("key") or ""))
         if from_step:
             index = STEP_ORDER.index(from_step) + 1  # 0 = 从头开始
@@ -1175,7 +1205,8 @@ class MainWindow(QMainWindow):
     def _task_busy(self) -> bool:
         task_running = self.worker is not None and self.worker.isRunning()
         batch_running = self.batch_worker is not None and self.batch_worker.isRunning()
-        return task_running or batch_running
+        model_running = self.model_worker is not None and self.model_worker.isRunning()
+        return task_running or batch_running or model_running
 
     def _append_batch_log(self, text: str) -> None:
         self.batch_log_view.appendPlainText(text)
@@ -1430,6 +1461,8 @@ class MainWindow(QMainWindow):
         QMessageBox.critical(self, "队列失败", text)
 
     def _on_batch_finished(self) -> None:
+        if self.sender() is not self.batch_worker:  # 旧 worker 的迟到信号
+            return
         self._set_batch_running(False)
         self.refresh_history()
 
@@ -1451,7 +1484,11 @@ class MainWindow(QMainWindow):
                 pass
         return out_root if out_root.exists() else None
 
-    def _current_key(self) -> str:
+    def _current_key(self, *, prefer_history: bool = False) -> str:
+        if prefer_history:
+            key, _ = self._selected_history_source()
+            if key:
+                return key
         key = self.last_key
         if key:
             return key
@@ -1460,8 +1497,12 @@ class MainWindow(QMainWindow):
             return str((item.data(Qt.UserRole) or {}).get("key") or "")
         return ""
 
-    def _current_source(self) -> str:
-        """预览/重渲染用的任务来源：最近任务 → 历史选中 → 输入框。"""
+    def _current_source(self, *, prefer_history: bool = False) -> str:
+        """预览/重渲染用的任务来源：历史选中（可选优先）→ 最近任务 → 输入框。"""
+        if prefer_history:
+            _, selected = self._selected_history_source()
+            if selected:
+                return selected
         if self.last_key:
             return self.last_key
         item = self.history.currentItem()
@@ -1472,8 +1513,13 @@ class MainWindow(QMainWindow):
                 return source
         return self.url_edit.text().strip()
 
-    def _open_preview(self) -> None:
-        source = self._current_source()
+    def _open_preview(self, *, prefer_history: bool = False) -> None:
+        if self._task_busy():
+            QMessageBox.information(
+                self, "提示", "有任务在运行：预览重渲染会与流水线冲突，请先等待完成或取消"
+            )
+            return
+        source = self._current_source(prefer_history=prefer_history)
         if not source:
             QMessageBox.information(
                 self, "提示", "先跑一次任务，或在历史列表选一条，再打开预览"
@@ -1481,8 +1527,8 @@ class MainWindow(QMainWindow):
             return
         PreviewDialog(self.settings, source, self).exec()
 
-    def _open_result(self, *, notes: bool) -> None:
-        key = self._current_key()
+    def _open_result(self, *, notes: bool, prefer_history: bool = False) -> None:
+        key = self._current_key(prefer_history=prefer_history)
         if not key:
             QMessageBox.information(self, "提示", "还没有可打开的结果，先跑一次任务")
             return
@@ -1523,6 +1569,9 @@ class MainWindow(QMainWindow):
         dialog = LlmWizardDialog(self.settings, self)
         if dialog.exec() == QDialog.Accepted:
             self._apply_and_save(dialog.patch(), "LLM 配置已保存（接入向导）")
+        else:
+            # 「稍后再说」/关闭：记录已完成，避免每次启动都弹（可在关于页手动重开）
+            self._apply_and_save({"ui": {"llm_wizard_done": True}}, "已跳过 LLM 接入向导")
 
     def _apply_and_save(self, patch: dict, message: str) -> bool:
         """合并 patch → 校验 → 写回配置文件 → 生效（设置 / 接入向导共用）。"""
@@ -1665,12 +1714,46 @@ class MainWindow(QMainWindow):
         self.model_download_btn.setEnabled(True)
         self.model_cancel_btn.setEnabled(False)
 
+    # ------------------------------------------------------------------ #
+    # 退出收尾
+    # ------------------------------------------------------------------ #
+    def closeEvent(self, event) -> None:  # noqa: ANN001, N802 - Qt 命名
+        """运行中关闭窗口：先确认并安全取消，避免 QThread 被强杀崩溃。"""
+        workers = [
+            worker
+            for worker in (self.worker, self.batch_worker, self.model_worker)
+            if worker is not None and worker.isRunning()
+        ]
+        if workers:
+            answer = QMessageBox.question(
+                self,
+                "退出确认",
+                "还有任务在运行：退出会取消当前任务\n"
+                "（已完成的步骤与检查点会保留，下次可继续）。\n\n确定退出吗？",
+            )
+            if answer != QMessageBox.Yes:
+                event.ignore()
+                return
+            for worker in workers:
+                worker.cancel()  # type: ignore[attr-defined]
+            for worker in workers:
+                if not worker.wait(8000):
+                    QMessageBox.information(
+                        self,
+                        "提示",
+                        "正在安全取消（检查点已保存）…请稍候再试一次关闭。",
+                    )
+                    event.ignore()
+                    return
+        event.accept()
+
 
 def run_gui(settings: Settings) -> None:
     app = QApplication.instance() or QApplication(sys.argv)
     app.setApplicationName("VIDAR")
     app.setWindowIcon(theme.app_icon())
-    setup_logging(resolve_path(settings.paths.logs_dir), quiet=True)
+    with contextlib.suppress(OSError):  # 日志目录不可写不阻断启动
+        setup_logging(resolve_path(settings.paths.logs_dir), quiet=True)
     window = MainWindow(settings)
     window.show()
     app.exec()
@@ -1682,7 +1765,16 @@ def main() -> None:
         if getattr(sys, stream_name) is None:
             # 进程级占位流：必须存活到进程结束，不能关闭
             setattr(sys, stream_name, open(os.devnull, "w", encoding="utf-8"))  # noqa: SIM115
-    settings = load_settings(None)
+    app = QApplication.instance() or QApplication(sys.argv)
+    app.setApplicationName("VIDAR")
+    try:
+        settings = load_settings(None)
+    except VidarError as exc:
+        # 无控制台环境下也能看到失败原因（config.toml 损坏等）
+        QMessageBox.critical(
+            None, "VIDAR 启动失败", f"{exc.message}\n\n{exc.hint or ''}".strip()
+        )
+        raise SystemExit(2) from exc
     run_gui(settings)
 
 

@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..config import Settings
+from ..config import Settings, llm_key_from_env
 from .llm_wizard import ConnectionTestWorker
 
 
@@ -29,8 +29,13 @@ class SettingsDialog(QDialog):
         self.resize(600, 340)
 
         self.api_base = QLineEdit(settings.llm.api_base)
-        self.api_key = QLineEdit(settings.llm.api_key)
+        env_key = llm_key_from_env()
+        self.api_key = QLineEdit(
+            "" if env_key and settings.llm.api_key == env_key else settings.llm.api_key
+        )
         self.api_key.setEchoMode(QLineEdit.Password)
+        if env_key and settings.llm.api_key == env_key:
+            self.api_key.setPlaceholderText("来自环境变量（留空即继续使用，不写入配置文件）")
         self.llm_model = QLineEdit(settings.llm.model)
         self.asr_model = QLineEdit(settings.asr.model)
         self.asr_device = QLineEdit(settings.asr.device)

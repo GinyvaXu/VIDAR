@@ -181,8 +181,8 @@ def export_outputs(
     point_count = 0
     if images_src.exists():
         images_dst.mkdir(parents=True, exist_ok=True)
-        # 清掉旧一轮截图，避免输出目录残留过期图片
-        for pattern in ("fig*.jpg", "pt*.jpg"):
+        # 清掉旧一轮截图，避免输出目录残留过期图片（cover.jpg 同样：本次无源则删除）
+        for pattern in ("fig*.jpg", "pt*.jpg", "cover.jpg"):
             for stale in images_dst.glob(pattern):
                 stale.unlink(missing_ok=True)
         shutil.copytree(images_src, images_dst, dirs_exist_ok=True)

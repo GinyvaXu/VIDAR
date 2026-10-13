@@ -145,7 +145,8 @@ def _extract_frame(video: Path, timestamp: float, output: Path) -> object | None
 
 def _dhash(image: object) -> int:
     small = image.convert("L").resize((9, 8))  # type: ignore[attr-defined]
-    pixels = list(small.getdata())  # type: ignore[attr-defined]
+    getter = getattr(small, "get_flattened_data", None)  # Pillow ≥12.3 新 API
+    pixels = list(getter() if callable(getter) else small.getdata())  # type: ignore[attr-defined]
     bits = 0
     for row in range(8):
         for col in range(8):

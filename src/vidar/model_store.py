@@ -33,13 +33,22 @@ REPO_ALIASES: dict[str, str] = {
     "tiny": "Systran/faster-whisper-tiny",
 }
 
-REQUIRED_FILES: tuple[str, ...] = (
-    "model.bin",
-    "config.json",
-    "tokenizer.json",
-    "vocabulary.json",
-    "preprocessor_config.json",
-)
+REQUIRED_BASE_FILES: tuple[str, ...] = ("model.bin", "config.json", "tokenizer.json")
+VOCAB_FILES: tuple[str, ...] = ("vocabulary.json", "vocabulary.txt")
+
+
+def required_files(sizes: dict[str, int] | None = None) -> list[str]:
+    """仓库的必需文件：词汇表 json/txt 二选一（不同档位仓库命名不同）。
+
+    另注：小/中档仓库没有 preprocessor_config.json，不列为必需。
+    """
+    files = list(REQUIRED_BASE_FILES)
+    if sizes:
+        vocab = next((name for name in VOCAB_FILES if name in sizes), VOCAB_FILES[0])
+    else:
+        vocab = VOCAB_FILES[0]
+    files.append(vocab)
+    return files
 
 # 离线兜底：已知模型各文件大小（字节），以本机实测为准
 KNOWN_SIZES: dict[str, dict[str, int]] = {
@@ -155,10 +164,11 @@ def default_model_dir(model: str, base: Path | None = None) -> Path:
 
 
 def expected_sizes(repo: str, *, endpoint: str | None = None) -> dict[str, int] | None:
-    """优先在线取元数据，失败回退内置表（可能为 None）。"""
+    """优先在线取元数据，再与内置表合并兜底（?blobs=true 才会带文件大小）。"""
+    sizes: dict[str, int] = {}
     if endpoint:
         with suppress(Exception), httpx.Client(timeout=15, follow_redirects=True) as client:
-            response = client.get(f"{endpoint}/api/models/{repo}")
+            response = client.get(f"{endpoint}/api/models/{repo}?blobs=true")
             response.raise_for_status()
             siblings = response.json().get("siblings") or []
             sizes = {
@@ -168,9 +178,10 @@ def expected_sizes(repo: str, *, endpoint: str | None = None) -> dict[str, int] 
                 and item.get("rfilename")
                 and isinstance(item.get("size"), int)
             }
-            if sizes:
-                return sizes
-    return KNOWN_SIZES.get(repo)
+    known = KNOWN_SIZES.get(repo) or {}
+    for name, size in known.items():
+        sizes.setdefault(name, size)
+    return sizes or None
 
 
 @dataclass(frozen=True)
@@ -186,7 +197,7 @@ def check_model(model: str, model_dir: Path, *, endpoint: str | None = None) -> 
     repo = resolve_repo(model)
     sizes = expected_sizes(repo, endpoint=endpoint) or {}
     results: list[CheckResult] = []
-    for name in REQUIRED_FILES:
+    for name in required_files(sizes or None):
         path = model_dir / name
         actual = path.stat().st_size if path.exists() else None
         expected = sizes.get(name)
@@ -222,7 +233,7 @@ def download_model(
             f"无法获取模型元数据：{repo}",
             hint="检查网络，或改用 --source huggingface；已知模型可用 large-v3/medium/small",
         )
-    missing = [name for name in REQUIRED_FILES if name not in sizes]
+    missing = [name for name in required_files(sizes) if name not in sizes]
     if missing:
         raise VidarError(f"仓库 {repo} 缺少必需文件：{', '.join(missing)}")
 
@@ -230,7 +241,7 @@ def download_model(
     downloaded: list[str] = []
     skipped: list[str] = []
 
-    for name in REQUIRED_FILES:
+    for name in required_files(sizes):
         size = sizes[name]
         target = model_dir / name
         if target.exists() and target.stat().st_size == size:

@@ -32,6 +32,7 @@ from .theme import (
     RULE,
     draw_fitted_text,
     figure_flowables,
+    font_safe,
     keyword_line,
     para,
     quote_flowable,
@@ -160,7 +161,7 @@ def build_paper(data: DocData) -> Path:
     )
 
     story: list = [NextPageTemplate("body"), Spacer(1, 6)]
-    story.append(Paragraph(escape(meta.title), styles["title"]))
+    story.append(Paragraph(escape(font_safe(meta.title)), styles["title"]))
     story.append(Spacer(1, 6))
     authors = f"作者：{meta.up_name or '—'}　　整理：VIDAR v{__version__}"
     story.append(Paragraph(escape(authors), styles["meta"]))
@@ -177,7 +178,9 @@ def build_paper(data: DocData) -> Path:
     # 摘要
     abstract_rows: list[list] = [[Paragraph("摘　要", styles["sec"])]]
     if data.summary.one_liner:
-        abstract_rows.append([Paragraph(escape(data.summary.one_liner), styles["abstract"])])
+        abstract_rows.append(
+            [Paragraph(escape(font_safe(data.summary.one_liner)), styles["abstract"])]
+        )
     if data.summary.key_points:
         abstract_rows.append([Spacer(1, 4)])
         for index, point in enumerate(data.summary.key_points[:5], start=1):
@@ -214,8 +217,9 @@ def build_paper(data: DocData) -> Path:
             story.append(Spacer(1, 2))
             story.append(Paragraph(escape(chapter.summary), styles["abstract"]))
 
-        if chapter.quote:
-            story += [Spacer(1, 3), quote_flowable(escape(chapter.quote), styles["quote"])]
+        quote = data.chapter_quote(chapter)
+        if quote:
+            story += [Spacer(1, 3), quote_flowable(escape(quote), styles["quote"])]
 
         for start, caption, path in data.chapter_figures(chapter):
             story += figure_flowables(

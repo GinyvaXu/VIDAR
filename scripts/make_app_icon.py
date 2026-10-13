@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import contextlib
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -28,6 +29,8 @@ with contextlib.suppress(Exception):  # Windows 控制台默认 GBK：强制 UTF
 
 def render_png(svg_text: str, size: int, output: Path) -> None:
     renderer = QSvgRenderer(QByteArray(svg_text.encode("utf-8")))
+    if not renderer.isValid():
+        raise SystemExit("✗ icon.svg 无法解析（SVG 损坏？）——已中止，未覆盖任何图标文件")
     image = QImage(size, size, QImage.Format_ARGB32)
     image.fill(Qt.transparent)
     painter = QPainter(image)
@@ -42,8 +45,13 @@ def main() -> None:
     for size in SIZES:
         render_png(svg_text, size, APP_DIR / f"vidar-{size}.png")
     base = Image.open(APP_DIR / "vidar-256.png").convert("RGBA")
-    base.save(APP_DIR / "vidar.ico", sizes=[(size, size) for size in SIZES])
-    print("✓ 已生成：", APP_DIR / "vidar.ico", "（多尺寸 PNG 一并输出）")
+    ico = APP_DIR / "vidar.ico"
+    if ico.exists():  # 覆盖前备份，防止 SVG 出错时丢失可用图标
+        backup = ico.with_suffix(".ico.bak")
+        shutil.copy2(ico, backup)
+        print(f"（旧图标已备份：{backup.name}）")
+    base.save(ico, sizes=[(size, size) for size in SIZES])
+    print("✓ 已生成：", ico, "（多尺寸 PNG 一并输出）")
 
 
 if __name__ == "__main__":

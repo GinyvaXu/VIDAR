@@ -11,7 +11,7 @@ from pathlib import Path
 
 import httpx
 
-from ..errors import VidarError
+from ..errors import CancelledError, NetworkError, VidarError
 
 CHUNK_THRESHOLD = 200 * 1024 * 1024  # 超过 200MB 启用分片
 CHUNK_SIZE = 32 * 1024 * 1024  # 每片 32MB
@@ -58,7 +58,7 @@ def _plan_parts(size: int) -> list[tuple[int, int]]:
 
 def _abort_if_cancelled(should_cancel: CancelCheck | None) -> None:
     if should_cancel is not None and should_cancel():
-        raise VidarError("下载已取消（分片已保留，重跑可续传）")
+        raise CancelledError("下载已取消（分片已保留，重跑可续传）")
 
 
 def _download_file_simple(
@@ -86,6 +86,13 @@ def _download_file_simple(
                 if on_progress:
                     done, total = progress.snapshot()
                     on_progress(description, done, total)
+    if temp.stat().st_size != size:
+        actual = temp.stat().st_size
+        temp.unlink(missing_ok=True)
+        raise VidarError(
+            f"下载大小不符：{target.name}（期望 {size}，实际 {actual}）",
+            hint="请重试；若持续失败可换下载源",
+        )
     temp.replace(target)
 
 
@@ -116,12 +123,19 @@ def _download_file_parallel(
 
     def worker(item: tuple[Path, int, int]) -> None:
         part, start, end = item
+        expected = end - start + 1
         headers = {"Range": f"bytes={start}-{end}"}
         with (
             httpx.Client(timeout=httpx.Timeout(30.0, read=120.0), follow_redirects=True) as client,
             client.stream("GET", url, headers=headers) as response,
         ):
             response.raise_for_status()
+            if response.status_code != 206:
+                # 源站/代理不理会 Range（回 200 整份）：分片会重复写入，必须拒绝
+                raise NetworkError(
+                    f"分片下载被拒绝：{part.name}（服务端未响应 Range 请求）",
+                    hint="该下载源不支持断点续传，请换源重试（如 --source huggingface）",
+                )
             with part.open("wb") as handle:
                 for chunk in response.iter_bytes(1024 * 1024):
                     _abort_if_cancelled(should_cancel)
@@ -130,6 +144,13 @@ def _download_file_parallel(
                     if on_progress:
                         done, total = progress.snapshot()
                         on_progress(description, done, total)
+        if part.stat().st_size != expected:
+            actual = part.stat().st_size
+            part.unlink(missing_ok=True)
+            raise NetworkError(
+                f"分片大小不符：{part.name}（期望 {expected}，实际 {actual}）",
+                hint="分片已清除，重跑将重新下载该片",
+            )
 
     if remaining:
         with ThreadPoolExecutor(max_workers=max(1, connections)) as pool:
