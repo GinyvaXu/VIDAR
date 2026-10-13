@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/images/icon-256.png" width="120" alt="VIDAR 图标">
+
 # VIDAR
 
 **Ginyva's VIDAR** · 中文音译「维达」（取「视频达意」）
