@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
 
 from vidar import model_store
+from vidar.errors import VidarError
 from vidar.model_store import (
     check_model,
     default_model_dir,
@@ -61,3 +63,68 @@ def test_check_model_with_known_sizes(
     results = check_model(fake_repo, model_dir)
     broken = [item.name for item in results if not item.ok]
     assert broken == ["model.bin"]
+
+
+def test_required_files_includes_feature_config_only_when_repo_has_it() -> None:
+    with_pre = {
+        "model.bin": 1,
+        "config.json": 1,
+        "tokenizer.json": 1,
+        "vocabulary.json": 1,
+        "preprocessor_config.json": 1,
+    }
+    without_pre = {
+        "model.bin": 1,
+        "config.json": 1,
+        "tokenizer.json": 1,
+        "vocabulary.txt": 1,
+    }
+    assert "preprocessor_config.json" in model_store.required_files(with_pre)
+    assert "vocabulary.json" in model_store.required_files(with_pre)
+    assert model_store.required_files(without_pre) == [
+        "model.bin",
+        "config.json",
+        "tokenizer.json",
+        "vocabulary.txt",
+    ]
+
+
+def test_check_model_flags_missing_preprocessor(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    fake_repo = "Fake/large-v3-demo"
+    sizes = {
+        "model.bin": 4,
+        "config.json": 2,
+        "tokenizer.json": 1,
+        "vocabulary.json": 1,
+        "preprocessor_config.json": 1,
+    }
+    monkeypatch.setitem(model_store.KNOWN_SIZES, fake_repo, sizes)
+    model_dir = tmp_path / "demo"
+    model_dir.mkdir()
+    for name, size in sizes.items():
+        if name != "preprocessor_config.json":
+            (model_dir / name).write_bytes(b"x" * size)
+
+    results = check_model(fake_repo, model_dir)
+    broken = [item.name for item in results if not item.ok]
+    assert broken == ["preprocessor_config.json"]
+
+
+def test_repair_model_writes_128_mels_and_is_idempotent(tmp_path: Path) -> None:
+    assert model_store.repair_model("large-v3", tmp_path) is True
+    config = json.loads((tmp_path / "preprocessor_config.json").read_text(encoding="utf-8"))
+    assert config["feature_size"] == 128
+
+    assert model_store.repair_model("large-v3", tmp_path) is False
+
+    (tmp_path / "preprocessor_config.json").write_text(
+        json.dumps({"feature_size": 80}), encoding="utf-8"
+    )
+    assert model_store.repair_model("large-v3", tmp_path) is True
+    config = json.loads((tmp_path / "preprocessor_config.json").read_text(encoding="utf-8"))
+    assert config["feature_size"] == 128
+
+
+def test_repair_model_rejects_unknown_repo(tmp_path: Path) -> None:
+    with pytest.raises(VidarError):
+        model_store.repair_model("someone/custom-weights", tmp_path)

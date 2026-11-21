@@ -565,6 +565,32 @@ def model_check(
     raise typer.Exit(1)
 
 
+@model_app.command("repair")
+def model_repair(
+    model: str = typer.Argument("large-v3", help="模型名：large-v3 / medium / small / Systran/xxx"),
+    dir: Path | None = typer.Option(None, "--dir", help="模型目录（默认 models/<模型名>）"),
+) -> None:
+    """修复模型特征配置（large-v3 缺失 preprocessor_config.json 导致 80/128 崩溃）。"""
+    from .model_store import PREPROCESSOR_FILE, default_model_dir, repair_model
+
+    target = dir or default_model_dir(model)
+    if not target.is_dir():
+        _fail(
+            VidarError(
+                f"模型目录不存在：{target}",
+                hint=f"先下载模型：vidar model download {model}",
+            )
+        )
+    try:
+        changed = repair_model(model, target)
+    except VidarError as exc:
+        _fail(exc)
+    if changed:
+        console.print(f"[green]✓ 已写入 {target / PREPROCESSOR_FILE}[/green]")
+    else:
+        console.print(f"[dim]特征配置已正确（{target / PREPROCESSOR_FILE}），无需修复[/dim]")
+
+
 @model_app.command("list")
 def model_list(
     dir: Path | None = typer.Option(None, "--dir", help="模型根目录（默认 ./models）"),

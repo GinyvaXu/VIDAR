@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 from contextlib import suppress
 from dataclasses import dataclass
@@ -35,20 +36,83 @@ REPO_ALIASES: dict[str, str] = {
 
 REQUIRED_BASE_FILES: tuple[str, ...] = ("model.bin", "config.json", "tokenizer.json")
 VOCAB_FILES: tuple[str, ...] = ("vocabulary.json", "vocabulary.txt")
+PREPROCESSOR_FILE = "preprocessor_config.json"
+
+# 特征维度：large-v3 系列编码器吃 128 维 mel，经典档位为 80 维
+MELS_128_ALIASES = ("large-v3", "large-v3-turbo")
 
 
 def required_files(sizes: dict[str, int] | None = None) -> list[str]:
-    """仓库的必需文件：词汇表 json/txt 二选一（不同档位仓库命名不同）。
+    """仓库的必需文件：基础文件 + 词汇表 + 特征配置（仓库提供时必下）。
 
-    另注：小/中档仓库没有 preprocessor_config.json，不列为必需。
+    词汇表 json/txt 命名随仓库不同；`preprocessor_config.json` 决定 mel 维度
+    （large-v3 为 128），缺失会让 faster-whisper 回落到 80 维，推理直接报
+    `Invalid input features shape`，因此只要仓库提供它，就必须列入必需文件。
     """
     files = list(REQUIRED_BASE_FILES)
     if sizes:
-        vocab = next((name for name in VOCAB_FILES if name in sizes), VOCAB_FILES[0])
+        files.extend(name for name in VOCAB_FILES if name in sizes)
+        if PREPROCESSOR_FILE in sizes:
+            files.append(PREPROCESSOR_FILE)
     else:
-        vocab = VOCAB_FILES[0]
-    files.append(vocab)
+        files.append(VOCAB_FILES[0])
     return files
+
+
+def expected_mels(model: str) -> int | None:
+    """按模型名推断编码器需要的 mel 维度；未知模型返回 None。"""
+    name = resolve_repo(model).split("/")[-1].lower()
+    if any(alias in name for alias in MELS_128_ALIASES):
+        return 128
+    if name.startswith(("faster-whisper-", "whisper-")):
+        return 80
+    return None
+
+
+PREPROCESSOR_TEMPLATE: dict[str, object] = {
+    "chunk_length": 30,
+    "feature_extractor_type": "WhisperFeatureExtractor",
+    "feature_size": 128,
+    "hop_length": 160,
+    "n_fft": 400,
+    "n_samples": 480000,
+    "nb_max_frames": 3000,
+    "padding_side": "right",
+    "padding_value": 0.0,
+    "processor_class": "WhisperProcessor",
+    "return_attention_mask": False,
+    "sampling_rate": 16000,
+}
+
+
+def write_preprocessor_config(model_dir: Path, n_mels: int) -> Path:
+    """写入/覆盖 preprocessor_config.json，保证特征提取器与模型维度一致。"""
+    model_dir.mkdir(parents=True, exist_ok=True)
+    payload = dict(PREPROCESSOR_TEMPLATE)
+    payload["feature_size"] = int(n_mels)
+    target = model_dir / PREPROCESSOR_FILE
+    target.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+    return target
+
+
+def repair_model(model: str, model_dir: Path) -> bool:
+    """修复缺失/写错的特征配置；返回是否实际写入。"""
+    n_mels = expected_mels(model)
+    if n_mels is None:
+        raise VidarError(
+            f"无法推断模型 {model} 的 mel 维度",
+            hint="请重新下载模型，或手动放置 preprocessor_config.json（feature_size 128 或 80）",
+        )
+    target = model_dir / PREPROCESSOR_FILE
+    if target.exists():
+        with suppress(Exception):
+            current = json.loads(target.read_text(encoding="utf-8"))
+            if int(current.get("feature_size", 0)) == n_mels:
+                return False
+    write_preprocessor_config(model_dir, n_mels)
+    return True
 
 # 离线兜底：已知模型各文件大小（字节），以本机实测为准
 KNOWN_SIZES: dict[str, dict[str, int]] = {
@@ -199,17 +263,27 @@ def check_model(model: str, model_dir: Path, *, endpoint: str | None = None) -> 
     results: list[CheckResult] = []
     for name in required_files(sizes or None):
         path = model_dir / name
+        if not sizes and name in VOCAB_FILES:
+            # 无元数据时词汇表 json/txt 任一存在即可（不同档位仓库命名不同）
+            path = next(
+                (
+                    candidate
+                    for candidate in (model_dir / item for item in VOCAB_FILES)
+                    if candidate.exists()
+                ),
+                path,
+            )
         actual = path.stat().st_size if path.exists() else None
-        expected = sizes.get(name)
+        expected = sizes.get(path.name)
         if actual is None:
             ok = False
         elif expected is not None:
             ok = actual == expected
-        elif name == "model.bin":
+        elif path.name == "model.bin":
             ok = actual > BIG_FILE_MIN_BYTES
         else:
             ok = actual > 0
-        results.append(CheckResult(name=name, expected=expected, actual=actual, ok=ok))
+        results.append(CheckResult(name=path.name, expected=expected, actual=actual, ok=ok))
     return results
 
 
@@ -260,6 +334,11 @@ def download_model(
         if target.stat().st_size != size:
             raise VidarError(f"{name} 下载后大小不符（期望 {size}，实际 {target.stat().st_size}）")
         downloaded.append(name)
+
+    # 兜底：仓库元数据未提供 feature 配置时，按模型档位补一份，
+    # 避免 large-v3 因缺 preprocessor_config.json 回落到 80 维而崩溃。
+    if expected_mels(model) == 128 and not (model_dir / PREPROCESSOR_FILE).exists():
+        write_preprocessor_config(model_dir, 128)
 
     return downloaded, skipped
 

@@ -187,12 +187,63 @@ def _wrap_gpu_error(exc: RuntimeError) -> VidarError:
     """把 CTranslate2 的 DLL 报错翻译成可执行的提示。"""
     message = str(exc)
     lowered = message.lower()
+    if "features shape" in lowered or "invalid input features" in lowered:
+        return VidarError(
+            f"语音模型特征维度不匹配：{message}",
+            hint=(
+                "模型目录的 preprocessor_config.json 缺失或 feature_size 写错。"
+                "执行 `vidar model repair <模型名>` 自动修复，或删除模型目录后重新下载。"
+            ),
+        )
     if "dll" in lowered or "cublas" in lowered or "cudnn" in lowered:
         return DependencyError(
             f"CUDA 运行时异常：{message}",
             hint="先执行 uv sync --extra asr 安装 CUDA DLL；或改用 --device cpu（较慢）",
         )
     return VidarError(f"模型推理失败：{message}")
+
+
+def align_feature_extractor(model: Any, reference: str, *, logger: Any = None) -> int | None:
+    """校正特征提取器的 mel 维度，使其与模型编码器一致。
+
+    faster-whisper 依据 preprocessor_config.json 的 feature_size 构造特征提取器；
+    文件缺失或写错时会回落到 80 维，而 large-v3 编码器要 128 维，推理直接报
+    `Invalid input features shape`。这里以 CT2 模型自带的 n_mels 为准重建提取器，
+    并把修正后的配置写回本地模型目录，后续启动不再复发。
+
+    返回修正后的 mel 维度；无需修正或无法判断时返回 None。
+    """
+    inner = getattr(model, "model", None)
+    try:
+        expected = int(getattr(inner, "n_mels", 0) or 0)
+    except (TypeError, ValueError):
+        expected = 0
+    extractor = getattr(model, "feature_extractor", None)
+    filters = getattr(extractor, "mel_filters", None)
+    actual = int(getattr(filters, "shape", (0,))[0] or 0)
+    if expected <= 0 or actual == expected:
+        return None
+
+    from faster_whisper.feature_extractor import FeatureExtractor
+
+    model.feature_extractor = FeatureExtractor(
+        feature_size=expected,
+        sampling_rate=int(getattr(extractor, "sampling_rate", 16000)),
+        hop_length=int(getattr(extractor, "hop_length", 160)),
+        chunk_length=int(getattr(extractor, "chunk_length", 30)),
+        n_fft=int(getattr(extractor, "n_fft", 400)),
+    )
+    if Path(reference).is_dir():
+        from .model_store import write_preprocessor_config
+
+        write_preprocessor_config(Path(reference), expected)
+    if logger is not None:
+        logger.info(
+            "特征维度已校正：%d → %d 维 mel（已写回 preprocessor_config.json）",
+            actual,
+            expected,
+        )
+    return expected
 
 
 def is_hallucination(text: str, start: float, end: float) -> bool:
@@ -377,6 +428,12 @@ def transcribe(ctx: RunContext, wav: Path) -> AsrResult:
         model = WhisperModel(model_reference, device=device, compute_type=compute_type)
     except RuntimeError as exc:
         raise _wrap_gpu_error(exc) from exc
+
+    # 自愈：preprocessor_config.json 缺失/写错会把 128 维模型喂成 80 维特征
+    try:
+        align_feature_extractor(model, model_reference, logger=ctx.log)
+    except Exception as exc:  # noqa: BLE001 - 兼容 faster-whisper 内部结构变化
+        ctx.log.warning("特征维度自检失败（继续尝试识别）：%s", exc)
 
     # ---- 续跑：从检查点时间点切片音频 ----
     work_wav = wav
