@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>A · Clear Glass — 规范</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+  body { background: #eceaf5; }
+  .app { position: absolute; inset: 16px; width: 1150px; height: 760px; display: flex; overflow: hidden; border-radius: 24px; background: #fdfdff; box-shadow: 0 30px 70px rgba(38,28,82,.20), 0 2px 6px rgba(38,28,82,.06); }
+  .side { width: 218px; flex: none; padding: 20px 14px 16px; background: linear-gradient(180deg, rgba(108,92,231,.07), rgba(108,92,231,.025)); border-right: 1px solid rgba(27,23,48,.07); display: flex; flex-direction: column; }
+  .brand { display: flex; align-items: center; gap: 10px; padding: 2px 8px 22px; }
+  .mark { width: 34px; height: 34px; border-radius: 10px; background: linear-gradient(145deg, #8f7bff, #5b47d6); box-shadow: inset 0 1px 0 rgba(255,255,255,.45), 0 6px 14px rgba(91,71,214,.28); display: grid; place-items: center; color: #fff; }
+  .brand b { display: block; font-size: 15px; letter-spacing: .14em; font-weight: 650; }
+  .brand span { display: block; font-size: 10.5px; color: #7a7392; margin-top: 2px; }
+  .nav { display: flex; flex-direction: column; gap: 2px; }
+  .nav a { display: flex; align-items: center; gap: 10px; height: 38px; padding: 0 11px; border-radius: 11px; font-size: 13px; color: #4d4766; text-decoration: none; }
+  .nav a svg { width: 17px; height: 17px; opacity: .72; }
+  .nav a.on { background: #fff; color: #4b39c9; font-weight: 600; box-shadow: 0 1px 2px rgba(27,23,48,.06), 0 8px 18px rgba(76,57,201,.10); }
+  .nav a.on svg { opacity: 1; }
+  .nav .label { margin: 18px 11px 7px; font-size: 10px; letter-spacing: .14em; color: #9a94ad; }
+  .main { flex: 1; padding: 16px 28px; overflow: hidden; }
+  .top { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 13px; }
+  h1 { margin: 0; font-size: 22px; font-weight: 650; letter-spacing: -.01em; }
+  .top .sub { margin-top: 5px; font-size: 11.5px; color: #7a7392; }
+  .tag { font-size: 10px; letter-spacing: .12em; color: #8a84a0; border: 1px solid rgba(27,23,48,.09); padding: 5px 9px; border-radius: 999px; }
+  .cols { display: grid; grid-template-columns: 1fr 1.08fr; gap: 14px; }
+  .card { background: #fff; border: 1px solid rgba(27,23,48,.07); border-radius: 14px; padding: 12px 15px; }
+  .card + .card { margin-top: 11px; }
+  h2 { margin: 0 0 11px; font-size: 11px; font-weight: 650; letter-spacing: .12em; color: #6d6685; }
+  .swatches { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; }
+  .sw { border-radius: 11px; overflow: hidden; border: 1px solid rgba(27,23,48,.06); }
+  .sw .c { height: 36px; }
+  .sw .m { padding: 6px 8px; font-size: 9.5px; color: #7a7392; background: #fff; }
+  .sw .m b { display: block; font-size: 10.5px; color: #2b2545; font-weight: 600; margin-bottom: 1px; }
+  .type { display: flex; flex-direction: column; gap: 6px; }
+  .line { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; }
+  .line .sample { color: #1d1834; }
+  .line .spec { font-size: 9.5px; color: #9891ab; white-space: nowrap; }
+  .t1 { font-size: 26px; font-weight: 650; letter-spacing: -.02em; }
+  .t2 { font-size: 17px; font-weight: 650; letter-spacing: -.01em; }
+  .t3 { font-size: 13px; }
+  .t4 { font-size: 11.5px; color: #6d6685; }
+  .t5 { font-size: 11px; color: #4a4463; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+  .token { border: 1px solid rgba(27,23,48,.06); border-radius: 10px; padding: 9px 10px; font-size: 10px; color: #7a7392; }
+  .token b { display: block; color: #2b2545; font-size: 11px; margin-bottom: 3px; }
+  .space { display: flex; align-items: flex-end; gap: 7px; max-height: 36px; }
+  .space i { display: block; background: #e6e0fb; border-radius: 2px 2px 0 0; max-height: 34px; }
+  .space span { font-size: 9px; color: #9891ab; }
+  .buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+  .btn { height: 31px; padding: 0 12px; border-radius: 9px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; border: 1px solid transparent; }
+  .primary { background: #6c5ce7; color: #fff; box-shadow: 0 5px 12px rgba(108,92,231,.25); }
+  .ghost { border-color: rgba(27,23,48,.10); color: #4a4463; background: #fff; }
+  .soft { background: #f1effa; color: #4b39c9; }
+  .danger { color: #b4394f; border-color: rgba(180,57,79,.18); }
+  .pills { display: flex; gap: 7px; margin-top: 10px; flex-wrap: wrap; }
+  .pill { height: 24px; padding: 0 10px; border-radius: 999px; font-size: 10px; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; }
+  .p-run { background: #eeeaff; color: #5342c8; }
+  .p-ok { background: #eaf7f1; color: #12855a; }
+  .p-err { background: #fdeef1; color: #c03a52; }
+  .p-wait { background: #f4f2f9; color: #7a7392; }
+  .inputdemo { height: 34px; border-radius: 9px; border: 1px solid #c9c0f2; background: #fff; box-shadow: 0 0 0 3px rgba(108,92,231,.12); display: flex; align-items: center; padding: 0 11px; font-size: 11px; color: #6d6685; }
+  .motion { display: flex; flex-direction: column; gap: 6px; font-size: 10.5px; color: #6d6685; }
+  .motion div { display: flex; justify-content: space-between; }
+  .motion b { color: #2b2545; font-weight: 600; }
+  .rule { font-size: 10.5px; color: #6d6685; line-height: 1.75; }
+  .rule b { color: #2b2545; }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="brand">
+      <div class="mark"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 18 12 5l7 13"/><path d="M8.5 14h7"/></svg></div>
+      <div><b>VIDAR</b><span>B 站视频 · 知识文档</span></div>
+    </div>
+    <nav class="nav">
+      <div class="label">工作</div>
+      <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg>工作台</a>
+      <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M8 5.5v13l10-6.5z"/></svg>任务</a>
+      <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 7h16M4 12h16M4 17h10"/></svg>队列</a>
+      <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 6h16v13H4z"/><path d="M8 6V4h8v2"/></svg>资料库</a>
+      <div class="label">环境</div>
+      <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="6" y="6" width="12" height="12" rx="3"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></svg>模型</a>
+    </nav>
+  </aside>
+  <main class="main">
+    <div class="top">
+      <div><h1>设计规范 · Clear Glass</h1><div class="sub">清透玻璃 / 品牌紫 / 轻材质。玻璃只用于浮层，内容卡片保持实底。</div></div>
+      <span class="tag">VIDAR v0.15 · 方向 A</span>
+    </div>
+    <div class="cols">
+      <div>
+        <section class="card">
+          <h2>色彩</h2>
+          <div class="swatches">
+            <div class="sw"><div class="c" style="background:#6c5ce7"></div><div class="m"><b>Accent</b>#6C5CE7 · 主操作/选中</div></div>
+            <div class="sw"><div class="c" style="background:#8f7bff"></div><div class="m"><b>Accent 2</b>#8F7BFF · 渐变/强调</div></div>
+            <div class="sw"><div class="c" style="background:#f1effa"></div><div class="m"><b>Tint</b>#F1EFFA · 选中底</div></div>
+            <div class="sw"><div class="c" style="background:#1d1834"></div><div class="m"><b>Ink</b>#1D1834 · 标题</div></div>
+            <div class="sw"><div class="c" style="background:#7a7392"></div><div class="m"><b>Muted</b>#7A7392 · 次要</div></div>
+            <div class="sw"><div class="c" style="background:#eaf7f1"></div><div class="m"><b>Success</b>#12855A · 完成</div></div>
+          </div>
+        </section>
+        <section class="card">
+          <h2>字体</h2>
+          <div class="type">
+            <div class="line"><span class="sample t1">把视频变成文档</span><span class="spec">26 / 650 / -2%</span></div>
+            <div class="line"><span class="sample t2">语音识别进行中</span><span class="spec">17 / 650</span></div>
+            <div class="line"><span class="sample t3">正文与表单使用 13px，行高 1.6</span><span class="spec">13 / 400</span></div>
+            <div class="line"><span class="sample t4">辅助说明与时间戳 11.5px</span><span class="spec">11.5 / 400</span></div>
+            <div class="line"><span class="sample t5 mono">BV1GJ411x7h7 · 42:18 · 62%</span><span class="spec">等宽数字</span></div>
+          </div>
+        </section>
+        <section class="card">
+          <h2>间距 / 圆角 / 层级</h2>
+          <div class="space" style="margin-bottom:12px">
+            <div><i style="width:4px;height:4px"></i><span>4</span></div>
+            <div><i style="width:8px;height:8px"></i><span>8</span></div>
+            <div><i style="width:12px;height:12px"></i><span>12</span></div>
+            <div><i style="width:16px;height:16px"></i><span>16</span></div>
+            <div><i style="width:24px;height:24px"></i><span>24</span></div>
+            <div><i style="width:32px;height:32px"></i><span>32</span></div>
+            <div><i style="width:48px;height:48px"></i><span>48</span></div>
+          </div>
+          <div class="grid2">
+            <div class="token"><b>圆角</b>控件 9–10 · 卡片 16 · 窗口 24</div>
+            <div class="token"><b>描边</b>rgba(27,23,48,.07) 发丝线</div>
+            <div class="token"><b>阴影 1</b>0 1px 2px / 3%</div>
+            <div class="token"><b>阴影 2</b>0 10px 30px / 10%（浮层）</div>
+          </div>
+        </section>
+      </div>
+      <div>
+        <section class="card">
+          <h2>组件</h2>
+          <div class="buttons">
+            <button class="btn primary">开始识别</button>
+            <button class="btn soft">暂停并释放显存</button>
+            <button class="btn ghost">打开目录</button>
+            <button class="btn danger">取消任务</button>
+          </div>
+          <div class="pills">
+            <span class="pill p-run"><span style="width:5px;height:5px;border-radius:50%;background:#6c5ce7"></span>识别中 62%</span>
+            <span class="pill p-ok">✓ 已完成</span>
+            <span class="pill p-err">! 下载失败</span>
+            <span class="pill p-wait">等待中</span>
+          </div>
+          <div class="inputdemo" style="margin-top:11px">粘贴 B 站链接，回车开始…<span style="margin-left:auto;font-size:9.5px;color:#9891ab">⌘V</span></div>
+        </section>
+        <section class="card">
+          <h2>动效</h2>
+          <div class="motion">
+            <div><span>状态切换 / 淡入</span><b>180ms · ease-out</b></div>
+            <div><span>页面切换 / 位移 8px</span><b>220ms · cubic-bezier(.2,.8,.2,1)</b></div>
+            <div><span>进度条 / 宽度</span><b>线性 · 仅数值变化时</b></div>
+            <div><span>悬浮 / 阴影</span><b>120ms · ease-out</b></div>
+          </div>
+        </section>
+        <section class="card">
+          <h2>使用规则</h2>
+          <div class="rule">
+            <b>玻璃只用于</b>侧栏、底部操作条、浮层菜单；内容卡片一律实底白。<br>
+            <b>紫色只用于</b>主操作、当前步骤、选中态；状态色独立，不用紫色表达成功/失败。<br>
+            <b>一个页面只有一个</b>实心主按钮；其余用 soft / ghost 区分层级。<br>
+            <b>禁止</b>渐变文字、彩色阴影堆叠、无意义光斑。
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+</div>
+</body>
+</html>

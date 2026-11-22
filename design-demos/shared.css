@@ -1,0 +1,20 @@
+/* 三方向稿共享底座：固定画板 1182×792，系统字体，无外部依赖 */
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  width: 1182px;
+  height: 792px;
+  overflow: hidden;
+  font-family: "Segoe UI Variable Display", "Segoe UI", "Microsoft YaHei UI",
+    "PingFang SC", "Hiragino Sans GB", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  color: #1b1730;
+}
+button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; }
+svg { display: block; }
+.num { font-variant-numeric: tabular-nums; }
+.mono {
+  font-family: "Cascadia Mono", "SFMono-Regular", Consolas, "Microsoft YaHei UI", monospace;
+  font-variant-ligatures: none;
+}

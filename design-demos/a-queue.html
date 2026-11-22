@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>A · Clear Glass — 队列</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+  body { background: #eceaf5; }
+  .app { position: absolute; inset: 16px; width: 1150px; height: 760px; display: flex; overflow: hidden; border-radius: 24px; background: #fdfdff; box-shadow: 0 30px 70px rgba(38,28,82,.20), 0 2px 6px rgba(38,28,82,.06); }
+  .side { width: 218px; flex: none; padding: 20px 14px 16px; background: linear-gradient(180deg, rgba(108,92,231,.07), rgba(108,92,231,.025)); border-right: 1px solid rgba(27,23,48,.07); display: flex; flex-direction: column; }
+  .brand { display: flex; align-items: center; gap: 10px; padding: 2px 8px 22px; }
+  .mark { width: 34px; height: 34px; border-radius: 10px; background: linear-gradient(145deg, #8f7bff, #5b47d6); box-shadow: inset 0 1px 0 rgba(255,255,255,.45), 0 6px 14px rgba(91,71,214,.28); display: grid; place-items: center; color: #fff; }
+  .brand b { display: block; font-size: 15px; letter-spacing: .14em; font-weight: 650; }
+  .brand span { display: block; font-size: 10.5px; color: #7a7392; margin-top: 2px; }
+  .nav { display: flex; flex-direction: column; gap: 2px; }
+  .nav a { display: flex; align-items: center; gap: 10px; height: 38px; padding: 0 11px; border-radius: 11px; font-size: 13px; color: #4d4766; text-decoration: none; }
+  .nav a svg { width: 17px; height: 17px; opacity: .72; }
+  .nav a.on { background: #fff; color: #4b39c9; font-weight: 600; box-shadow: 0 1px 2px rgba(27,23,48,.06), 0 8px 18px rgba(76,57,201,.10); }
+  .nav a.on svg { opacity: 1; }
+  .nav .label { margin: 18px 11px 7px; font-size: 10px; letter-spacing: .14em; color: #9a94ad; }
+  .side .foot { margin-top: auto; }
+  .env { margin: 10px 4px 2px; padding: 9px 10px; border-radius: 10px; background: rgba(255,255,255,.72); border: 1px solid rgba(27,23,48,.06); font-size: 10.5px; color: #6b6484; line-height: 1.7; }
+  .env b { color: #3a3452; font-weight: 600; }
+  .main { flex: 1; padding: 18px 28px 0; display: flex; flex-direction: column; min-width: 0; }
+  .topbar { display: flex; align-items: center; justify-content: space-between; height: 36px; }
+  .crumb { font-size: 12px; color: #8a84a0; display: flex; align-items: center; gap: 7px; }
+  .crumb b { color: #26203d; font-weight: 600; }
+  .chip { height: 28px; padding: 0 11px; border-radius: 999px; display: inline-flex; align-items: center; gap: 6px; background: #f5f3fb; border: 1px solid rgba(27,23,48,.06); font-size: 11px; color: #5c5577; }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: #18a06d; box-shadow: 0 0 0 3px rgba(24,160,109,.12); }
+  .iconbtn { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; color: #6d6685; border: 1px solid rgba(27,23,48,.06); background: #fff; }
+  .head { display: flex; align-items: flex-end; justify-content: space-between; padding: 18px 2px 16px; }
+  h1 { margin: 0 0 5px; font-size: 24px; font-weight: 650; letter-spacing: -.01em; }
+  .sub { font-size: 11.5px; color: #7a7392; }
+  .sub b { color: #4b39c9; font-weight: 600; }
+  .btn { height: 34px; padding: 0 14px; border-radius: 10px; font-size: 11.5px; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; border: 1px solid transparent; }
+  .btn.primary { background: #6c5ce7; color: #fff; box-shadow: 0 6px 14px rgba(108,92,231,.28); }
+  .btn.ghost { border-color: rgba(27,23,48,.10); color: #4a4463; background: #fff; }
+  .btn.soft { background: #f1effa; color: #4b39c9; }
+  .btn.danger { color: #b4394f; }
+  .btn.sm { height: 28px; padding: 0 10px; font-size: 10.5px; border-radius: 8px; }
+  .add {
+    display: flex; align-items: center; gap: 10px; padding: 11px 12px 11px 16px; border-radius: 14px;
+    background: #fff; border: 1px solid rgba(27,23,48,.08); box-shadow: 0 1px 2px rgba(27,23,48,.03);
+  }
+  .add .fake { flex: 1; height: 34px; display: flex; align-items: center; padding: 0 12px; border-radius: 9px; background: #f7f5fc; border: 1px solid rgba(27,23,48,.05); font-size: 12px; color: #a49db6; }
+  .add .fake b { color: #6b6484; font-weight: 500; }
+  .list { margin-top: 16px; background: #fff; border: 1px solid rgba(27,23,48,.07); border-radius: 16px; overflow: hidden; }
+  .row { position: relative; display: flex; align-items: center; gap: 14px; padding: 15px 18px; border-bottom: 1px solid rgba(27,23,48,.055); }
+  .row:last-child { border-bottom: 0; }
+  .row.run { background: linear-gradient(90deg, rgba(108,92,231,.055), rgba(108,92,231,0)); }
+  .row.fail { background: linear-gradient(90deg, rgba(217,72,95,.05), rgba(217,72,95,0)); }
+  .st { width: 30px; height: 30px; flex: none; border-radius: 9px; display: grid; place-items: center; background: #f4f2f9; color: #8a84a0; }
+  .st.run { background: #eeeaff; color: #5b4bd0; }
+  .st.ok { background: #eaf7f1; color: #12855a; }
+  .st.err { background: #fdeef1; color: #c03a52; }
+  .who { width: 330px; flex: none; }
+  .who b { display: block; font-size: 12.5px; font-weight: 600; color: #2b2545; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .who span { display: block; margin-top: 3px; font-size: 10.5px; color: #9891ab; }
+  .prog { flex: 1; min-width: 0; }
+  .prog .line { display: flex; justify-content: space-between; font-size: 10.5px; color: #6d6685; margin-bottom: 6px; }
+  .prog .line b { color: #4b39c9; font-weight: 650; }
+  .track { height: 4px; border-radius: 4px; background: #efeCF8; overflow: hidden; }
+  .track i { display: block; height: 100%; border-radius: 4px; background: #6c5ce7; }
+  .track.ok i { background: #18a06d; }
+  .track.err i { background: #d9485f; }
+  .prog .err { margin-top: 5px; font-size: 10.5px; color: #c03a52; }
+  .prog .wait { font-size: 10.5px; color: #9891ab; margin-top: 2px; }
+  .acts { display: flex; align-items: center; gap: 6px; flex: none; }
+  .footbar { margin-top: auto; display: flex; align-items: center; justify-content: space-between; padding: 14px 2px 18px; }
+  .footbar .left { display: flex; align-items: center; gap: 8px; }
+  .footbar .hint { font-size: 10.5px; color: #9891ab; }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="brand">
+      <div class="mark"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 18 12 5l7 13"/><path d="M8.5 14h7"/></svg></div>
+      <div><b>VIDAR</b><span>B 站视频 · 知识文档</span></div>
+    </div>
+    <nav class="nav">
+      <div class="label">工作</div>
+      <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg>工作台</a>
+      <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M8 5.5v13l10-6.5z"/></svg>任务</a>
+      <a class="on" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 7h16M4 12h16M4 17h10"/></svg>队列</a>
+      <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 6h16v13H4z"/><path d="M8 6V4h8v2"/></svg>资料库</a>
+      <div class="label">环境</div>
+      <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="6" y="6" width="12" height="12" rx="3"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></svg>模型</a>
+    </nav>
+    <div class="foot">
+      <div class="env"><b>CUDA</b> · large-v3<br>RTX 5060 · 8 GB · 就绪</div>
+    </div>
+  </aside>
+  <main class="main">
+    <div class="topbar">
+      <div class="crumb">工作台 <span>›</span> <b>队列</b></div>
+      <div><span class="chip"><span class="dot"></span>顺序执行 · 失败不阻塞</span></div>
+    </div>
+    <div class="head">
+      <div><h1>队列</h1><div class="sub">3 个任务 · <b>1 个运行中</b> · 预计 12 分钟跑完</div></div>
+      <button class="btn primary"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>添加任务</button>
+    </div>
+    <div class="add">
+      <div class="fake"><b>粘贴 B 站链接，支持多行；</b>以 # 开头的行会被忽略</div>
+      <button class="btn ghost">从文件导入</button>
+      <button class="btn soft">加入队列</button>
+    </div>
+    <section class="list">
+      <div class="row run">
+        <span class="st run"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l10-6.5z"/></svg></span>
+        <div class="who"><b>为什么我们总在重造轮子？软件工程的十年循环</b><span>BV1GJ411x7h7 · 硬地骇客 · 42:18</span></div>
+        <div class="prog">
+          <div class="line"><span>语音识别 · 第 4 / 8 步</span><b class="num">62%</b></div>
+          <div class="track"><i style="width:62%"></i></div>
+          <div class="wait">已用 1:26 · 剩余约 4:12</div>
+        </div>
+        <div class="acts"><button class="btn ghost sm">暂停</button><button class="btn ghost sm">详情</button></div>
+      </div>
+      <div class="row">
+        <span class="st ok"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="m5 12 5 5 9-10"/></svg></span>
+        <div class="who"><b>Rust 所有权模型，讲透这三层就够了</b><span>BV1xx411c7mD · 代码之外 · 28:04</span></div>
+        <div class="prog">
+          <div class="line"><span>已完成 · 8 / 8 步</span><b class="num" style="color:#12855a">100%</b></div>
+          <div class="track ok"><i style="width:100%"></i></div>
+          <div class="wait">耗时 3:12 · PDF 2.4 MB · EPUB 1.1 MB</div>
+        </div>
+        <div class="acts"><button class="btn ghost sm">打开</button><button class="btn ghost sm">重跑</button></div>
+      </div>
+      <div class="row fail">
+        <span class="st err"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M12 7v6"/><circle cx="12" cy="17" r=".8" fill="currentColor"/><path d="M10.3 4.5 3.6 16.5A2 2 0 0 0 5.3 19.5h13.4a2 2 0 0 0 1.7-3L13.7 4.5a2 2 0 0 0-3.4 0z"/></svg></span>
+        <div class="who"><b>用 Obsidian 搭建第二大脑：一年后的复盘</b><span>BV1yy411c7mE · 效率实验室 · 35:12</span></div>
+        <div class="prog">
+          <div class="line"><span>第 2 / 8 步 · 下载音频</span><b class="num" style="color:#c03a52">失败</b></div>
+          <div class="track err"><i style="width:12%"></i></div>
+          <div class="err">音频地址返回 403（可能需要登录态），可换线路重试</div>
+        </div>
+        <div class="acts"><button class="btn soft sm">重试</button><button class="btn ghost sm">移除</button></div>
+      </div>
+    </section>
+    <div class="footbar">
+      <div class="left">
+        <button class="btn ghost"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l10-6.5z"/></svg>开始队列</button>
+        <button class="btn ghost">停止</button>
+        <button class="btn ghost">重试失败项</button>
+        <button class="btn ghost">清空已完成</button>
+      </div>
+      <div class="hint">队列会自动保存，关闭软件后重新打开仍可继续</div>
+    </div>
+  </main>
+</div>
+</body>
+</html>

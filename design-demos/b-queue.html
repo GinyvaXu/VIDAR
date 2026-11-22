@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>B · Paper Studio — 队列</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+  body { background: #f7f6f2; color: #15161a; }
+  .masthead { height: 60px; display: flex; align-items: center; gap: 28px; padding: 0 40px; }
+  .wordmark { display: flex; align-items: center; gap: 9px; font-size: 15px; font-weight: 700; letter-spacing: .18em; }
+  .wordmark i { width: 9px; height: 9px; background: #2f5fe0; display: block; }
+  .nav { display: flex; gap: 22px; margin-left: 8px; }
+  .nav a { font-size: 12.5px; color: #6b6f76; text-decoration: none; padding: 4px 0; }
+  .nav a.on { color: #15161a; font-weight: 600; box-shadow: inset 0 -2px 0 #2f5fe0; }
+  .masthead .right { margin-left: auto; font-size: 11.5px; color: #6b6f76; }
+  .masthead .right b { color: #15161a; }
+  .rule { height: 4px; border-top: 1px solid #15161a; border-bottom: 1px solid #cfccc2; }
+  .wrap { padding: 24px 40px 0; }
+  .top { display: flex; align-items: flex-end; justify-content: space-between; }
+  .kicker { font-size: 10px; letter-spacing: .18em; color: #2f5fe0; font-weight: 700; }
+  h1 { margin: 6px 0 0; font-size: 25px; font-weight: 650; letter-spacing: -.015em; }
+  .top .sub { margin-top: 5px; font-size: 11.5px; color: #777b82; }
+  .top .sub b { color: #2f5fe0; }
+  .btn { height: 32px; padding: 0 13px; font-size: 11.5px; font-weight: 600; border: 1px solid #d9d6cc; background: #fff; color: #2c2e33; }
+  .btn.primary { background: #2f5fe0; border-color: #2f5fe0; color: #fff; }
+  .btn.sm { height: 26px; padding: 0 9px; font-size: 10.5px; }
+  .btn.text { border: 0; background: none; color: #2f5fe0; padding: 0 3px; }
+  .ledger { margin-top: 18px; border-top: 1px solid #15161a; }
+  .lhead, .lrow { display: flex; align-items: center; gap: 16px; padding: 0 2px; }
+  .lhead { height: 34px; font-size: 9.5px; letter-spacing: .14em; color: #8b8e94; border-bottom: 1px solid #e3e0d7; }
+  .lrow { min-height: 70px; border-bottom: 1px solid #e3e0d7; }
+  .c-no { width: 26px; flex: none; font-size: 10.5px; color: #a9a59a; font-variant-numeric: tabular-nums; }
+  .c-main { flex: 1; min-width: 0; }
+  .c-main b { display: block; font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .c-main span { display: block; margin-top: 3px; font-size: 10.5px; color: #9a9da3; }
+  .c-state { width: 86px; flex: none; font-size: 10.5px; }
+  .c-state .tag { display: inline-flex; align-items: center; gap: 5px; }
+  .c-state .sq { width: 7px; height: 7px; display: inline-block; }
+  .run .sq { background: #2f5fe0; }
+  .ok .sq { background: #1f8a5b; }
+  .err .sq { background: #c23b52; }
+  .run .tag { color: #2f5fe0; font-weight: 600; }
+  .ok .tag { color: #1f8a5b; }
+  .err .tag { color: #c23b52; }
+  .c-prog { width: 210px; flex: none; }
+  .c-prog .track { height: 2px; background: #e5e3dc; margin-top: 7px; }
+  .c-prog .track i { display: block; height: 100%; background: #2f5fe0; }
+  .c-prog .track.ok i { background: #1f8a5b; }
+  .c-prog .track.err i { background: #c23b52; }
+  .c-prog .txt { font-size: 10px; color: #777b82; display: flex; justify-content: space-between; }
+  .c-prog .why { font-size: 10px; color: #c23b52; margin-top: 4px; }
+  .c-time { width: 66px; flex: none; font-size: 10.5px; color: #777b82; font-variant-numeric: tabular-nums; }
+  .c-act { width: 132px; flex: none; display: flex; justify-content: flex-end; gap: 2px; }
+  .addrow { display: flex; align-items: center; gap: 10px; padding: 11px 2px 0; border-bottom: 1px dashed #d9d6cc; padding-bottom: 12px; }
+  .addrow .field { flex: 1; display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 11px; border: 1px solid #d9d6cc; background: #fff; font-size: 11.5px; color: #a9a59a; }
+  .addrow .field b { color: #6b6f76; font-weight: 500; }
+  .foot { margin-top: 16px; display: flex; align-items: center; justify-content: space-between; }
+  .foot .left { display: flex; gap: 14px; font-size: 11px; }
+  .foot .left a { color: #2f5fe0; text-decoration: none; }
+  .foot .hint { font-size: 10.5px; color: #9a9da3; }
+  .note { margin-top: 12px; padding: 9px 12px; border: 1px solid #e3e0d7; background: #fffdf8; font-size: 10.5px; color: #777b82; }
+  .note b { color: #15161a; }
+</style>
+</head>
+<body>
+  <header class="masthead">
+    <div class="wordmark"><i></i>VIDAR</div>
+    <nav class="nav"><a href="#">工作台</a><a href="#">任务</a><a class="on" href="#">队列</a><a href="#">资料库</a><a href="#">模型</a></nav>
+    <div class="right"><b>CUDA</b> · large-v3 · 就绪</div>
+  </header>
+  <div class="rule"></div>
+  <div class="wrap">
+    <div class="top">
+      <div>
+        <div class="kicker">批量作业</div>
+        <h1>队列</h1>
+        <div class="sub">3 个任务 · <b>1 个运行中</b> · 顺序执行，失败不阻塞 · 预计 12 分钟</div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn">从文件导入</button>
+        <button class="btn primary">添加任务</button>
+      </div>
+    </div>
+    <div class="ledger">
+      <div class="lhead">
+        <span class="c-no">#</span><span class="c-main">任务</span><span class="c-state">状态</span>
+        <span class="c-prog">进度</span><span class="c-time">耗时</span><span class="c-act" style="text-align:right">操作</span>
+      </div>
+      <div class="lrow run">
+        <span class="c-no">01</span>
+        <div class="c-main"><b>为什么我们总在重造轮子？软件工程的十年循环</b><span>BV1GJ411x7h7 · 硬地骇客 · 42:18</span></div>
+        <span class="c-state run"><span class="tag"><i class="sq"></i>运行中</span></span>
+        <div class="c-prog"><div class="txt"><span>第 4 / 8 步 · 语音识别</span><span>62%</span></div><div class="track"><i style="width:62%"></i></div></div>
+        <span class="c-time">1:26</span>
+        <div class="c-act"><button class="btn text sm">暂停</button><button class="btn text sm">详情</button></div>
+      </div>
+      <div class="lrow ok">
+        <span class="c-no">02</span>
+        <div class="c-main"><b>Rust 所有权模型，讲透这三层就够了</b><span>BV1xx411c7mD · 代码之外 · 28:04</span></div>
+        <span class="c-state ok"><span class="tag"><i class="sq"></i>已完成</span></span>
+        <div class="c-prog"><div class="txt"><span>8 / 8 步 · 已导出</span><span>100%</span></div><div class="track ok"><i style="width:100%"></i></div></div>
+        <span class="c-time">3:12</span>
+        <div class="c-act"><button class="btn text sm">打开</button><button class="btn text sm">重跑</button></div>
+      </div>
+      <div class="lrow err">
+        <span class="c-no">03</span>
+        <div class="c-main"><b>用 Obsidian 搭建第二大脑：一年后的复盘</b><span>BV1yy411c7mE · 效率实验室 · 35:12</span></div>
+        <span class="c-state err"><span class="tag"><i class="sq"></i>失败</span></span>
+        <div class="c-prog"><div class="txt"><span>第 2 / 8 步 · 下载音频</span><span>12%</span></div><div class="track err"><i style="width:12%"></i></div><div class="why">音频地址返回 403，可能需要登录态</div></div>
+        <span class="c-time">0:18</span>
+        <div class="c-act"><button class="btn text sm">重试</button><button class="btn text sm">移除</button></div>
+      </div>
+    </div>
+    <div class="addrow">
+      <div class="field"><b>粘贴 B 站链接，支持多行；</b>以 # 开头的行会被忽略</div>
+      <button class="btn">加入队列</button>
+    </div>
+    <div class="foot">
+      <div class="left"><a href="#">开始队列</a><a href="#">停止</a><a href="#">重试失败项</a><a href="#">清空已完成</a></div>
+      <div class="hint">队列会自动保存，关闭软件后重新打开仍可继续</div>
+    </div>
+    <div class="note"><b>执行策略</b>　顺序执行 · 单条失败继续下一条 · 同一链接自动去重 · 断点续跑沿用上次检查点</div>
+  </div>
+</body>
+</html>

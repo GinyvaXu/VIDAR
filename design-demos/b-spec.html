@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>B · Paper Studio — 规范</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+  body { background: #f7f6f2; color: #15161a; }
+  .masthead { height: 58px; display: flex; align-items: center; gap: 28px; padding: 0 40px; }
+  .wordmark { display: flex; align-items: center; gap: 9px; font-size: 15px; font-weight: 700; letter-spacing: .18em; }
+  .wordmark i { width: 9px; height: 9px; background: #2f5fe0; display: block; }
+  .masthead .right { margin-left: auto; font-size: 11px; color: #777b82; letter-spacing: .04em; }
+  .rule { height: 4px; border-top: 1px solid #15161a; border-bottom: 1px solid #cfccc2; }
+  .wrap { padding: 20px 40px 0; }
+  .top { display: flex; align-items: flex-end; justify-content: space-between; }
+  .kicker { font-size: 10px; letter-spacing: .18em; color: #2f5fe0; font-weight: 700; }
+  h1 { margin: 5px 0 0; font-size: 23px; font-weight: 650; letter-spacing: -.015em; }
+  .top .sub { margin-top: 4px; font-size: 11px; color: #777b82; }
+  .cols { display: grid; grid-template-columns: 1.06fr .94fr; gap: 34px; margin-top: 18px; }
+  h2 { margin: 0 0 10px; font-size: 9.5px; letter-spacing: .18em; color: #8b8e94; font-weight: 700; border-bottom: 1px solid #e3e0d7; padding-bottom: 6px; }
+  .specimen { display: flex; align-items: flex-end; gap: 18px; margin-bottom: 6px; }
+  .specimen .big { font-family: Georgia, "Songti SC", "SimSun", serif; font-size: 74px; line-height: .9; letter-spacing: -.02em; }
+  .specimen .cn { font-size: 12px; color: #777b82; line-height: 1.7; padding-bottom: 6px; }
+  .scale { margin-top: 10px; }
+  .scale .row { display: flex; align-items: baseline; justify-content: space-between; padding: 7px 0; border-bottom: 1px dotted #dcd9cf; }
+  .scale .row span:first-child { color: #15161a; }
+  .scale .row span:last-child { font-size: 9.5px; color: #9a9da3; letter-spacing: .04em; }
+  .s26 { font-size: 24px; font-weight: 650; letter-spacing: -.01em; }
+  .s17 { font-size: 17px; font-weight: 650; }
+  .s13 { font-size: 12.5px; }
+  .s11 { font-size: 11px; color: #565a61; }
+  .s10 { font-size: 10px; color: #777b82; letter-spacing: .04em; }
+  .colors { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .sw { border: 1px solid #e3e0d7; background: #fff; }
+  .sw .c { height: 42px; }
+  .sw .m { padding: 6px 8px; font-size: 9px; color: #8b8e94; letter-spacing: .03em; }
+  .sw .m b { display: block; font-size: 10px; color: #15161a; letter-spacing: 0; margin-bottom: 1px; }
+  .space { display: flex; align-items: flex-end; gap: 10px; margin-top: 10px; }
+  .space div { text-align: center; font-size: 8.5px; color: #9a9da3; }
+  .space i { display: block; background: #dfe6fb; margin: 0 auto 4px; }
+  .comp { display: flex; flex-direction: column; gap: 9px; }
+  .btn { height: 30px; padding: 0 12px; font-size: 11px; font-weight: 600; border: 1px solid #d9d6cc; background: #fff; color: #2c2e33; display: inline-flex; align-items: center; gap: 6px; }
+  .btn.primary { background: #2f5fe0; border-color: #2f5fe0; color: #fff; }
+  .btn.text { border: 0; background: none; color: #2f5fe0; padding: 0 2px; }
+  .field { height: 32px; border: 1px solid #d9d6cc; border-bottom: 2px solid #2f5fe0; background: #fff; display: flex; align-items: center; padding: 0 10px; font-size: 11px; color: #9a9da3; }
+  .tags { display: flex; gap: 14px; font-size: 10.5px; }
+  .tags span { display: inline-flex; align-items: center; gap: 5px; }
+  .sq { width: 7px; height: 7px; display: inline-block; }
+  .rules { font-size: 10.5px; color: #565a61; line-height: 1.9; }
+  .rules b { color: #15161a; }
+  .rules em { font-style: normal; color: #2f5fe0; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 20px; }
+</style>
+</head>
+<body>
+  <header class="masthead">
+    <div class="wordmark"><i></i>VIDAR</div>
+    <div class="right">DESIGN SPECIMEN · v0.15 · DIRECTION B</div>
+  </header>
+  <div class="rule"></div>
+  <div class="wrap">
+    <div class="top">
+      <div><div class="kicker">设计规范</div><h1>Paper Studio · 纸感工作台</h1><div class="sub">编辑排版的语言：纸白、发丝线、宋体标题、单一钢蓝。界面退后，文档站前。</div></div>
+      <div class="sub" style="text-align:right">正文 12.5px / 1.95<br>标题 25px / 650</div>
+    </div>
+    <div class="cols">
+      <div>
+        <section style="margin-bottom:16px">
+          <h2>字体 · 编辑的声音</h2>
+          <div class="specimen">
+            <div class="big">Aa</div>
+            <div class="cn">Georgia + 思源宋体<br>用于文档标题与引文；<br>界面文字用系统无衬线。</div>
+          </div>
+          <div class="scale">
+            <div class="row"><span class="s26">文档标题与页面标题</span><span>24–25 / 650 / -1%</span></div>
+            <div class="row"><span class="s17">区块标题与引导语</span><span>17 / 650</span></div>
+            <div class="row"><span class="s13">界面正文、表格、表单</span><span>12.5 / 400 / 1.7</span></div>
+            <div class="row"><span class="s11">辅助说明、状态、时间戳</span><span>11 / 400</span></div>
+            <div class="row"><span class="s10">编辑标签（唯一允许的全大写）</span><span>9.5 / 700 / +18%</span></div>
+          </div>
+        </section>
+        <section>
+          <h2>色彩 · 纸与墨</h2>
+          <div class="colors">
+            <div class="sw"><div class="c" style="background:#f7f6f2"></div><div class="m"><b>Paper</b>#F7F6F2 · 画布</div></div>
+            <div class="sw"><div class="c" style="background:#ffffff;border-bottom:1px solid #eee"></div><div class="m"><b>Sheet</b>#FFFFFF · 纸张</div></div>
+            <div class="sw"><div class="c" style="background:#15161a"></div><div class="m"><b>Ink</b>#15161A · 正文</div></div>
+            <div class="sw"><div class="c" style="background:#2f5fe0"></div><div class="m"><b>Steel Blue</b>#2F5FE0 · 唯一强调</div></div>
+            <div class="sw"><div class="c" style="background:#e5e3dc"></div><div class="m"><b>Rule</b>#E5E3DC · 发丝线</div></div>
+            <div class="sw"><div class="c" style="background:#1f8a5b"></div><div class="m"><b>Success</b>#1F8A5B · 完成</div></div>
+          </div>
+        </section>
+      </div>
+      <div>
+        <section style="margin-bottom:16px">
+          <h2>界面组件</h2>
+          <div class="comp">
+            <div style="display:flex;gap:8px"><button class="btn primary">开始识别</button><button class="btn">暂停并释放显存</button><button class="btn text">打开目录</button></div>
+            <div class="field">粘贴 B 站链接，回车开始…</div>
+            <div class="tags">
+              <span class="run" style="color:#2f5fe0"><i class="sq" style="background:#2f5fe0"></i>运行中</span>
+              <span style="color:#1f8a5b"><i class="sq" style="background:#1f8a5b"></i>已完成</span>
+              <span style="color:#c23b52"><i class="sq" style="background:#c23b52"></i>失败</span>
+              <span style="color:#9a9da3"><i class="sq" style="background:#c9c6bc"></i>等待</span>
+            </div>
+          </div>
+        </section>
+        <section style="margin-bottom:16px">
+          <h2>版式节奏</h2>
+          <div class="space">
+            <div><i style="width:4px;height:4px"></i>4</div><div><i style="width:8px;height:8px"></i>8</div>
+            <div><i style="width:12px;height:12px"></i>12</div><div><i style="width:16px;height:16px"></i>16</div>
+            <div><i style="width:24px;height:24px"></i>24</div><div><i style="width:32px;height:32px"></i>32</div>
+            <div><i style="width:48px;height:48px"></i>48</div>
+          </div>
+          <div class="space" style="margin-top:8px;font-size:10px;color:#777b82">
+            <span>栏宽：正文 34–38 字 / 行</span><span style="margin-left:auto">圆角：0–4px，纸张不圆角</span>
+          </div>
+        </section>
+        <section>
+          <h2>规则</h2>
+          <div class="grid">
+            <div class="rules"><b>纸优先</b><br>内容区永远是一张白纸，界面元素不叠在纸上。<br><b>线代替框</b><br>分区用 1px 发丝线，不用卡片阴影。</div>
+            <div class="rules"><b>一处强调</b><br>钢蓝只给当前步骤与主操作，其余全墨灰。<br><b>标签克制</b><br>全大写仅用于英文编辑标签，中文不加字距。</div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

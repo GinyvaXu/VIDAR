@@ -19,7 +19,9 @@ from vidar.gui.settings_dialog import SettingsDialog  # noqa: E402
 
 def main() -> int:
     app = QApplication([])
-    window = MainWindow(load_settings(None))
+    settings = load_settings(None)
+    settings.ui.llm_wizard_done = True  # 冒烟测试不弹首启向导
+    window = MainWindow(settings)
     window.show()
     app.processEvents()
 
@@ -50,7 +52,7 @@ def main() -> int:
     print(
         f"GUI smoke OK：窗口「{window.windowTitle()}」"
         f"，导航 {window.nav.count()} 项"
-        f"，步骤 {window.steps_table.rowCount()} 行"
+        f"，步骤 {window.steps_table.count()} 行"
         f"，历史 {window.history.count()} 条"
         f"，队列 {len(window.batch_items)} 条"
     )

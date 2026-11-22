@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>C · Quiet Monochrome — 任务</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+  body { background: #f4f4f6; color: #17171a; }
+  .app { position: absolute; inset: 0; display: flex; }
+  /* 图标栏 */
+  .rail { width: 56px; flex: none; background: #ededf0; border-right: 1px solid #e0e0e4; display: flex; flex-direction: column; align-items: center; padding: 14px 0; gap: 4px; }
+  .rail .mark { width: 30px; height: 30px; border-radius: 8px; background: #17171a; color: #fff; display: grid; place-items: center; margin-bottom: 12px; }
+  .rail a { width: 34px; height: 34px; border-radius: 8px; display: grid; place-items: center; color: #7a7a82; position: relative; }
+  .rail a.on { background: #fff; color: #17171a; box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+  .rail a.on::before { content: ""; position: absolute; left: -11px; top: 8px; bottom: 8px; width: 2px; background: #7c5cff; border-radius: 2px; }
+  .rail .sp { margin-top: auto; }
+  /* 列表栏 */
+  .panel { width: 234px; flex: none; background: #fafafb; border-right: 1px solid #e4e4e8; display: flex; flex-direction: column; }
+  .panel .ph { padding: 16px 14px 8px; }
+  .panel .ph b { font-size: 13px; font-weight: 650; }
+  .search { margin: 6px 12px 10px; height: 30px; border: 1px solid #e2e2e6; background: #fff; border-radius: 7px; display: flex; align-items: center; gap: 7px; padding: 0 9px; font-size: 10.5px; color: #9a9aa2; }
+  .plist { padding: 0 8px; display: flex; flex-direction: column; gap: 1px; }
+  .plabel { font-size: 9px; letter-spacing: .1em; color: #a2a2aa; padding: 10px 7px 4px; }
+  .pitem { padding: 8px 9px; border-radius: 7px; position: relative; }
+  .pitem.on { background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.05); border: 1px solid #e8e8ec; padding: 7px 8px; }
+  .pitem .t { font-size: 11.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pitem .m { display: flex; align-items: center; gap: 5px; margin-top: 3px; font-size: 9.5px; color: #92929a; }
+  .sq { width: 5px; height: 5px; border-radius: 50%; display: inline-block; }
+  .sq.run { background: #7c5cff; } .sq.ok { background: #1e8e5a; } .sq.err { background: #c64257; } .sq.wait { background: #c5c5cc; }
+  .pitem.on .t { color: #17171a; }
+  /* 主区 */
+  .main { flex: 1; background: #fff; display: flex; flex-direction: column; min-width: 0; }
+  .top { height: 50px; flex: none; display: flex; align-items: center; padding: 0 22px; border-bottom: 1px solid #ececf0; gap: 10px; }
+  .top .id { font-size: 10px; color: #a2a2aa; letter-spacing: .04em; }
+  .top .sp { margin-left: auto; display: flex; gap: 4px; }
+  .ibtn { width: 28px; height: 28px; border-radius: 7px; display: grid; place-items: center; color: #7a7a82; }
+  .ibtn:hover { background: #f4f4f6; }
+  .head { padding: 20px 26px 0; }
+  .head .row1 { display: flex; align-items: center; gap: 9px; }
+  .state { display: inline-flex; align-items: center; gap: 6px; font-size: 10.5px; font-weight: 650; color: #5b3fe0; background: #f1edff; padding: 4px 9px; border-radius: 6px; }
+  .head h1 { margin: 9px 0 5px; font-size: 19px; font-weight: 650; letter-spacing: -.01em; }
+  .head .meta { display: flex; gap: 12px; font-size: 10.5px; color: #8a8a92; }
+  .head .meta b { color: #45454c; font-weight: 500; }
+  /* 横向步骤 */
+  .steps { display: flex; align-items: flex-start; padding: 18px 26px 16px; gap: 0; }
+  .st { flex: 1; position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+  .st::before { content: ""; position: absolute; top: 9px; left: 18px; right: 0; height: 1px; background: #e6e6ea; }
+  .st:last-child::before { display: none; }
+  .st.done::before { background: #d8d2ff; }
+  .st .dot { width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid #d4d4da; background: #fff; display: grid; place-items: center; font-size: 8px; color: #a2a2aa; position: relative; z-index: 1; }
+  .st.done .dot { background: #1e8e5a; border-color: #1e8e5a; color: #fff; }
+  .st.now .dot { background: #7c5cff; border-color: #7c5cff; color: #fff; box-shadow: 0 0 0 4px #eee9ff; }
+  .st .l { font-size: 10px; color: #8a8a92; padding-left: 1px; }
+  .st.done .l, .st.now .l { color: #3c3c44; font-weight: 600; }
+  .st .s { font-size: 9px; color: #b0b0b8; padding-left: 1px; }
+  /* 内容 */
+  .content { flex: 1; display: grid; grid-template-columns: 1fr 272px; min-height: 0; border-top: 1px solid #ececf0; }
+  .log { border-right: 1px solid #ececf0; display: flex; flex-direction: column; min-height: 0; }
+  .logh { height: 36px; display: flex; align-items: center; padding: 0 22px; gap: 14px; font-size: 10px; color: #8a8a92; border-bottom: 1px solid #f1f1f4; }
+  .logh b { color: #3c3c44; font-size: 10.5px; font-weight: 650; }
+  .logh .live { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; color: #5b3fe0; }
+  .logrows { flex: 1; overflow: hidden; padding: 8px 0; font-size: 10.5px; line-height: 2.0; }
+  .lr { display: grid; grid-template-columns: 66px 54px 1fr; gap: 8px; padding: 0 22px; }
+  .lr time { color: #b0b0b8; font-variant-numeric: tabular-nums; }
+  .lv { font-size: 9px; letter-spacing: .04em; color: #9a9aa2; }
+  .lv.ok { color: #1e8e5a; } .lv.warn { color: #b7791f; } .lv.info { color: #5b3fe0; }
+  .lr .msg { color: #4a4a52; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lr .msg b { color: #17171a; font-weight: 600; }
+  /* 右栏 */
+  .side { padding: 14px 18px; display: flex; flex-direction: column; gap: 16px; }
+  .side h3 { margin: 0 0 8px; font-size: 9px; letter-spacing: .1em; color: #9a9aa2; font-weight: 650; }
+  .files { display: flex; flex-direction: column; gap: 1px; }
+  .f { display: flex; align-items: center; gap: 8px; padding: 7px 0; font-size: 10.5px; color: #5a5a62; border-bottom: 1px solid #f4f4f6; }
+  .f b { color: #2c2c33; font-weight: 550; }
+  .f .sz { margin-left: auto; font-size: 9.5px; color: #a2a2aa; }
+  .f.wait { color: #b0b0b8; }
+  .kv { display: flex; flex-direction: column; gap: 5px; font-size: 10px; }
+  .kv div { display: flex; justify-content: space-between; }
+  .kv span { color: #9a9aa2; } .kv b { color: #3c3c44; font-weight: 500; }
+  .side .btn { height: 30px; border-radius: 7px; font-size: 10.5px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid #e0e0e5; background: #fff; color: #3c3c44; }
+  .side .btn.dark { background: #17171a; color: #fff; border-color: #17171a; }
+  /* 底栏 */
+  .bottom { height: 50px; flex: none; border-top: 1px solid #ececf0; display: flex; align-items: center; padding: 0 22px; gap: 14px; }
+  .bottom .bar { flex: 1; height: 3px; background: #eeeef2; border-radius: 3px; overflow: hidden; }
+  .bottom .bar i { display: block; width: 62%; height: 100%; background: #7c5cff; }
+  .bottom .eta { font-size: 10px; color: #8a8a92; white-space: nowrap; }
+  .bottom .eta b { color: #3c3c44; }
+  .btn2 { height: 30px; padding: 0 11px; border-radius: 7px; font-size: 10.5px; font-weight: 600; border: 1px solid #e0e0e5; background: #fff; color: #3c3c44; display: inline-flex; align-items: center; gap: 5px; }
+  .btn2.pri { background: #7c5cff; border-color: #7c5cff; color: #fff; }
+  .btn2.danger { color: #c64257; }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="rail">
+    <div class="mark"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 18 12 5l7 13"/><path d="M8.5 14h7"/></svg></div>
+    <a href="#" title="工作台"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg></a>
+    <a class="on" href="#" title="任务"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M8 5.5v13l10-6.5z"/></svg></a>
+    <a href="#" title="队列"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 7h16M4 12h16M4 17h10"/></svg></a>
+    <a href="#" title="资料库"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 6h16v13H4z"/><path d="M8 6V4h8v2"/></svg></a>
+    <a href="#" title="模型"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="6" y="6" width="12" height="12" rx="3"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></svg></a>
+    <a class="sp" href="#" title="设置"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 1.56V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.88l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.56V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.2.6.76 1 1.56 1H21a2 2 0 1 1 0 4h-.09c-.8 0-1.36.4-1.51 1z"/></svg></a>
+  </aside>
+  <aside class="panel">
+    <div class="ph"><b>任务</b></div>
+    <div class="search"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>搜索任务、BV 号</div>
+    <div class="plist">
+      <div class="plabel">今天</div>
+      <div class="pitem on"><div class="t">为什么我们总在重造轮子？</div><div class="m"><i class="sq run"></i>识别中 · 62% · 1:26</div></div>
+      <div class="pitem"><div class="t">Rust 所有权模型，讲透三层</div><div class="m"><i class="sq ok"></i>已完成 · 3:12</div></div>
+      <div class="pitem"><div class="t">用 Obsidian 搭建第二大脑</div><div class="m"><i class="sq err"></i>下载失败 · 403</div></div>
+      <div class="plabel">昨天</div>
+      <div class="pitem"><div class="t">大模型推理的成本结构</div><div class="m"><i class="sq ok"></i>已完成 · 4:08</div></div>
+      <div class="pitem"><div class="t">从零实现一个 JSON 解析器</div><div class="m"><i class="sq ok"></i>已完成 · 2:51</div></div>
+      <div class="plabel">更早</div>
+      <div class="pitem"><div class="t">内容创作者的定价策略</div><div class="m"><i class="sq ok"></i>已完成 · 昨天</div></div>
+    </div>
+  </aside>
+  <main class="main">
+    <div class="top">
+      <span class="id mono">TASK-04</span>
+      <div class="sp">
+        <button class="ibtn" aria-label="日志"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+        <button class="ibtn" aria-label="主题"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a6.5 6.5 0 0 0 9.8 9.8z"/></svg></button>
+        <button class="ibtn" aria-label="更多"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+      </div>
+    </div>
+    <div class="head">
+      <div class="row1"><span class="state"><i class="sq run"></i>语音识别中 62%</span><span class="num" style="font-size:10px;color:#a2a2aa">预计剩余 4:12</span></div>
+      <h1>为什么我们总在重造轮子？软件工程的十年循环</h1>
+      <div class="meta"><span>硬地骇客</span><span>42:18</span><span>BV1GJ411x7h7</span><span>输出 <b>D:/VIDAR/output/BV1GJ411x7h7</b></span></div>
+    </div>
+    <div class="steps">
+      <div class="st done"><span class="dot">✓</span><span class="l">解析</span><span class="s num">0:02</span></div>
+      <div class="st done"><span class="dot">✓</span><span class="l">下载</span><span class="s num">1:06</span></div>
+      <div class="st done"><span class="dot">✓</span><span class="l">解码</span><span class="s num">0:04</span></div>
+      <div class="st now"><span class="dot">4</span><span class="l">识别</span><span class="s">进行中</span></div>
+      <div class="st"><span class="dot">5</span><span class="l">精修</span><span class="s">等待</span></div>
+      <div class="st"><span class="dot">6</span><span class="l">广告</span><span class="s">等待</span></div>
+      <div class="st"><span class="dot">7</span><span class="l">摘要</span><span class="s">等待</span></div>
+      <div class="st"><span class="dot">8</span><span class="l">导出</span><span class="s">等待</span></div>
+    </div>
+    <div class="content">
+      <section class="log">
+        <div class="logh"><b>运行日志</b><span>按时间 · 实时</span><span class="live"><i class="sq run"></i>LIVE</span></div>
+        <div class="logrows mono">
+          <div class="lr"><time>12:37:36</time><span class="lv info">INFO</span><span class="msg">模型路径回退到 <b>D:/VIDAR/models/faster-whisper-large-v3</b></span></div>
+          <div class="lr"><time>12:37:36</time><span class="lv info">INFO</span><span class="msg">加载 ASR 模型 large-v3（cuda / float16）</span></div>
+          <div class="lr"><time>12:37:58</time><span class="lv info">INFO</span><span class="msg">音频时长 42:18 · 检测语言 zh · 置信度 0.99</span></div>
+          <div class="lr"><time>12:38:02</time><span class="lv info">INFO</span><span class="msg">已识别 <b>18:20 / 42:18</b> · 62% · 6.4× 实时</span></div>
+          <div class="lr"><time>12:38:05</time><span class="lv ok">OK</span><span class="msg">检查点已保存 · 第 240 段 · 18:20</span></div>
+          <div class="lr"><time>12:38:09</time><span class="lv info">INFO</span><span class="msg">等待识别完成后进入文稿精修</span></div>
+          <div class="lr"><time>12:38:09</time><span class="lv warn">TIP</span><span class="msg">可暂停并释放显存，稍后从断点继续</span></div>
+          <div class="lr"><time>12:38:12</time><span class="lv info">INFO</span><span class="msg">GPU 显存 4.6 / 8.0 GB · 温度 61°C</span></div>
+          <div class="lr"><time>12:38:15</time><span class="lv info">INFO</span><span class="msg">已识别 18:26 / 42:18 · 62.2%</span></div>
+          <div class="lr"><time>12:38:18</time><span class="lv info">INFO</span><span class="msg">已识别 18:32 / 42:18 · 62.5%</span></div>
+        </div>
+      </section>
+      <aside class="side">
+        <div>
+          <h3>产物</h3>
+          <div class="files">
+            <div class="f wait"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/></svg><span>Markdown</span><span class="sz">待生成</span></div>
+            <div class="f wait"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 3h8l4 4v14H6z"/><path d="M9 13h6M9 17h6"/></svg><span>PDF 排版</span><span class="sz">待生成</span></div>
+            <div class="f wait"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 5h7v14H4zM13 5h7v14h-7z"/></svg><span>EPUB</span><span class="sz">待生成</span></div>
+          </div>
+        </div>
+        <div>
+          <h3>本次参数</h3>
+          <div class="kv"><div><span>模型</span><b>large-v3</b></div><div><span>设备</span><b>CUDA · float16</b></div><div><span>语言</span><b>自动检测</b></div><div><span>VAD</span><b>开</b></div><div><span>精修</span><b>DeepSeek V3</b></div></div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px;margin-top:auto">
+          <button class="btn dark">打开输出目录</button>
+          <button class="btn">查看完整日志</button>
+        </div>
+      </aside>
+    </div>
+    <div class="bottom">
+      <div class="bar"><i></i></div>
+      <span class="eta">18:20 / 29:41 · <b>剩余 4:12</b></span>
+      <button class="btn2">暂停</button>
+      <button class="btn2 danger">取消</button>
+    </div>
+  </main>
+</div>
+</body>
+</html>

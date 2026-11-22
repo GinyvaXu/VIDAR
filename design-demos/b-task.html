@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>B · Paper Studio — 任务</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+  body { background: #f7f6f2; color: #15161a; }
+  .masthead { height: 60px; display: flex; align-items: center; gap: 28px; padding: 0 40px; }
+  .wordmark { display: flex; align-items: center; gap: 9px; font-size: 15px; font-weight: 700; letter-spacing: .18em; }
+  .wordmark i { width: 9px; height: 9px; background: #2f5fe0; display: block; }
+  .nav { display: flex; gap: 22px; margin-left: 8px; }
+  .nav a { font-size: 12.5px; color: #6b6f76; text-decoration: none; padding: 4px 0; }
+  .nav a.on { color: #15161a; font-weight: 600; box-shadow: inset 0 -2px 0 #2f5fe0; }
+  .masthead .right { margin-left: auto; display: flex; align-items: center; gap: 18px; font-size: 11.5px; color: #6b6f76; }
+  .masthead .right b { color: #15161a; font-weight: 600; }
+  .rule { height: 4px; border-top: 1px solid #15161a; border-bottom: 1px solid #cfccc2; }
+  .wrap { padding: 22px 40px 0; }
+  .kicker { font-size: 10px; letter-spacing: .18em; color: #2f5fe0; font-weight: 700; }
+  .head { display: flex; align-items: flex-end; justify-content: space-between; margin-top: 8px; }
+  h1 { margin: 0; font-size: 25px; font-weight: 650; letter-spacing: -.015em; }
+  .meta { margin-top: 6px; font-size: 11.5px; color: #777b82; }
+  .meta span + span::before { content: "·"; margin: 0 8px; color: #c3c0b6; }
+  .stamp { text-align: right; font-size: 10.5px; color: #6b6f76; }
+  .stamp b { display: block; font-size: 13px; color: #2f5fe0; font-weight: 650; }
+  .progress { margin-top: 14px; display: flex; align-items: center; gap: 12px; }
+  .progress .track { flex: 1; height: 3px; background: #e5e3dc; position: relative; }
+  .progress .track i { position: absolute; left: 0; top: 0; bottom: 0; width: 62%; background: #2f5fe0; }
+  .progress .pct { font-size: 10.5px; color: #6b6f76; }
+  .grid { display: grid; grid-template-columns: 300px 1fr; gap: 30px; margin-top: 18px; }
+  .flow h2, .proof h2 { margin: 0 0 12px; font-size: 10px; letter-spacing: .16em; color: #777b82; font-weight: 700; }
+  .step { display: flex; gap: 13px; padding: 7px 0; position: relative; }
+  .step .no { width: 20px; flex: none; font-size: 10.5px; color: #a9a59a; padding-top: 1px; font-variant-numeric: tabular-nums; }
+  .step.done .no { color: #2f5fe0; }
+  .step .t { font-size: 12.5px; color: #565a61; line-height: 1.5; }
+  .step .s { font-size: 10.5px; color: #a9a59a; margin-top: 1px; }
+  .step.now .t { color: #15161a; font-weight: 650; }
+  .step.now { background: #eef2ff; margin: 0 -10px; padding: 7px 10px; border-left: 2px solid #2f5fe0; }
+  .step.now .s { color: #2f5fe0; }
+  .paper {
+    background: #fff; border: 1px solid #e3e0d7; box-shadow: 0 1px 0 #fff inset, 0 10px 30px rgba(40,36,24,.06);
+    padding: 26px 30px; position: relative; min-height: 452px;
+  }
+  .paper::before { content: ""; position: absolute; left: 14px; top: 0; bottom: 0; width: 1px; background: #f0eee7; }
+  .doc-title { font-family: Georgia, "Songti SC", "STSong", "SimSun", serif; font-size: 21px; line-height: 1.45; letter-spacing: .01em; margin: 0 0 4px; }
+  .doc-sub { font-size: 10.5px; color: #8b8e94; letter-spacing: .04em; margin-bottom: 16px; }
+  .doc p { margin: 0 0 11px; font-size: 12.5px; line-height: 1.95; color: #3d4047; text-align: justify; }
+  .doc .lead { font-size: 13px; color: #24262b; }
+  .doc blockquote { margin: 14px 0; padding: 4px 0 4px 16px; border-left: 2px solid #2f5fe0; font-family: Georgia, "Songti SC", "SimSun", serif; font-size: 26px; line-height: 1.35; color: #15161a; }
+  .doc .fig { margin-top: 16px; border-top: 1px solid #eeebe2; padding-top: 10px; font-size: 10px; color: #9a9da3; display: flex; justify-content: space-between; }
+  .bottom { position: absolute; left: 40px; right: 40px; bottom: 18px; display: flex; align-items: center; justify-content: space-between; border-top: 1px solid #e3e0d7; padding-top: 14px; }
+  .bottom .left { font-size: 11px; color: #777b82; }
+  .bottom .left b { color: #15161a; }
+  .btn { height: 32px; padding: 0 13px; font-size: 11.5px; font-weight: 600; border: 1px solid #d9d6cc; background: #fff; color: #2c2e33; }
+  .btn.primary { background: #2f5fe0; border-color: #2f5fe0; color: #fff; }
+  .btn.link { border: 0; background: none; color: #2f5fe0; padding: 0 4px; }
+</style>
+</head>
+<body>
+  <header class="masthead">
+    <div class="wordmark"><i></i>VIDAR</div>
+    <nav class="nav">
+      <a href="#">工作台</a><a class="on" href="#">任务</a><a href="#">队列</a><a href="#">资料库</a><a href="#">模型</a>
+    </nav>
+    <div class="right"><span><b>CUDA</b> · large-v3</span><span>本地识别</span><span>设置</span></div>
+  </header>
+  <div class="rule"></div>
+  <div class="wrap">
+    <div class="head">
+      <div>
+        <div class="kicker">任务 04 — 语音识别中</div>
+        <h1>为什么我们总在重造轮子？软件工程的十年循环</h1>
+        <div class="meta"><span>硬地骇客</span><span>42:18</span><span>BV1GJ411x7h7</span><span>今天 12:37 开始</span></div>
+      </div>
+      <div class="stamp"><b>62%</b>预计剩余 4:12</div>
+    </div>
+    <div class="progress"><div class="track"><i></i></div><span class="pct">18:20 / 29:41 · 6.4× 实时</span></div>
+    <div class="grid">
+      <section class="flow">
+        <h2>流程</h2>
+        <div class="step done"><span class="no">01</span><div><div class="t">解析视频</div><div class="s">已完成 · 0:02</div></div></div>
+        <div class="step done"><span class="no">02</span><div><div class="t">下载音频</div><div class="s">已完成 · 1:06 · 18.6 MB</div></div></div>
+        <div class="step done"><span class="no">03</span><div><div class="t">音频解码</div><div class="s">已完成 · 0:04</div></div></div>
+        <div class="step now"><span class="no">04</span><div><div class="t">语音识别</div><div class="s">进行中 · 断点已保存</div></div></div>
+        <div class="step"><span class="no">05</span><div><div class="t">文稿精修</div><div class="s">等待 · LLM 分段校对</div></div></div>
+        <div class="step"><span class="no">06</span><div><div class="t">广告识别</div><div class="s">等待</div></div></div>
+        <div class="step"><span class="no">07</span><div><div class="t">摘要生成</div><div class="s">等待</div></div></div>
+        <div class="step"><span class="no">08</span><div><div class="t">排版导出</div><div class="s">等待 · MD / PDF / EPUB</div></div></div>
+      </section>
+      <section class="proof">
+        <h2>校样 · 实时预览</h2>
+        <div class="paper">
+          <div class="doc"><div class="doc-title">重造轮子之前，先看清轮子</div>
+          <div class="doc-sub">为什么我们总在重造轮子？ · 第 1 节 / 共 12 节</div>
+          <p class="lead">每个团队都以为自己面对的是全新的问题。可当你把过去十年的工程实践摊开，会发现大多数“新轮子”，只是旧轮子换了一种材料。</p>
+          <p>这不是反对创新。问题在于，我们常常在没有弄清楚旧方案为什么长成那样之前，就急着否定它。于是绕了一圈，又回到同样的约束里。</p>
+          <blockquote>“抽象不是省略细节，而是把细节放到正确的位置。”</blockquote>
+          <p>本文想讨论的，是三个反复出现的循环：工具链的循环、架构的循环，以及团队组织方式的循环。理解它们，比记住任何一个框架都更有用。</p>
+          <div class="fig"><span>自动生成 · 识别置信度 0.99 · 待精修</span><span>1 / 12</span></div>
+        </div>
+        </div>
+      </section>
+    </div>
+    <div class="bottom">
+      <div class="left"><b>语音识别</b> 进行中 · 日志 1,284 行 · 检查点 3 分钟前</div>
+      <div style="display:flex;gap:8px">
+        <button class="btn link">查看日志</button>
+        <button class="btn">打开输出目录</button>
+        <button class="btn primary">暂停并释放显存</button>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>C · Quiet Monochrome — 规范</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+  body { background: #f4f4f6; color: #17171a; }
+  .app { position: absolute; inset: 0; display: flex; }
+  .rail { width: 56px; flex: none; background: #ededf0; border-right: 1px solid #e0e0e4; display: flex; flex-direction: column; align-items: center; padding: 14px 0; gap: 4px; }
+  .rail .mark { width: 30px; height: 30px; border-radius: 8px; background: #17171a; color: #fff; display: grid; place-items: center; margin-bottom: 12px; }
+  .rail a { width: 34px; height: 34px; border-radius: 8px; display: grid; place-items: center; color: #7a7a82; }
+  .rail a.on { background: #fff; color: #17171a; box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+  .rail .sp { margin-top: auto; }
+  .main { flex: 1; background: #fff; padding: 26px 32px; overflow: hidden; }
+  .top { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 18px; }
+  .top .k { font-size: 9px; letter-spacing: .16em; color: #a2a2aa; }
+  h1 { margin: 6px 0 4px; font-size: 20px; font-weight: 650; letter-spacing: -.01em; }
+  .top .sub { font-size: 10.5px; color: #8a8a92; }
+  .top .tag { font-size: 9px; color: #8a8a92; border: 1px solid #e6e6ea; padding: 4px 8px; border-radius: 5px; letter-spacing: .08em; }
+  .cols { display: grid; grid-template-columns: 1fr 1fr 1.06fr; gap: 22px; }
+  h2 { margin: 0 0 9px; font-size: 9px; letter-spacing: .12em; color: #9a9aa2; font-weight: 650; }
+  .ramp { display: flex; flex-direction: column; border: 1px solid #ececf0; border-radius: 8px; overflow: hidden; }
+  .ramp div { height: 26px; display: flex; align-items: center; justify-content: space-between; padding: 0 9px; font-size: 9px; color: #fff; }
+  .ramp div.light { color: #5a5a62; }
+  .ramp b { font-weight: 500; }
+  .accent { margin-top: 10px; }
+  .accent .sw { height: 46px; border-radius: 7px; background: #7c5cff; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 1px; padding: 0 10px; color: #fff; font-size: 9px; }
+  .accent .note { margin-top: 5px; font-size: 9px; color: #9a9aa2; line-height: 1.6; }
+  .type .row { display: flex; align-items: baseline; justify-content: space-between; padding: 6px 0; border-bottom: 1px dotted #e6e6ea; }
+  .type .row span:last-child { font-size: 9px; color: #a2a2aa; }
+  .t20 { font-size: 18px; font-weight: 650; letter-spacing: -.01em; }
+  .t13 { font-size: 12.5px; }
+  .t11 { font-size: 11px; color: #5a5a62; }
+  .t10 { font-size: 9.5px; color: #8a8a92; letter-spacing: .04em; }
+  .mono { font-size: 10.5px; color: #3c3c44; }
+  .space { display: flex; align-items: flex-end; gap: 9px; margin-top: 10px; }
+  .space div { font-size: 8px; color: #a2a2aa; text-align: center; }
+  .space i { display: block; background: #e9e9ee; margin: 0 auto 3px; }
+  .components { display: flex; flex-direction: column; gap: 8px; }
+  .btn { height: 28px; padding: 0 11px; border-radius: 6px; font-size: 10px; font-weight: 600; border: 1px solid #e0e0e5; background: #fff; color: #3c3c44; display: inline-flex; align-items: center; gap: 5px; }
+  .btn.pri { background: #7c5cff; border-color: #7c5cff; color: #fff; }
+  .btn.dark { background: #17171a; border-color: #17171a; color: #fff; }
+  .field { height: 28px; border: 1px solid #e2e2e6; border-radius: 6px; display: flex; align-items: center; padding: 0 9px; font-size: 10px; color: #a2a2aa; background: #fafafb; }
+  .states { display: flex; gap: 12px; font-size: 9.5px; }
+  .states span { display: inline-flex; align-items: center; gap: 4px; }
+  .sq { width: 5px; height: 5px; border-radius: 50%; display: inline-block; }
+  .rules { font-size: 10px; color: #5a5a62; line-height: 1.85; }
+  .rules b { color: #17171a; }
+  .rules em { font-style: normal; color: #5b3fe0; }
+  .mot { display: flex; flex-direction: column; gap: 4px; font-size: 9.5px; color: #6e6e76; }
+  .mot div { display: flex; justify-content: space-between; }
+  .mot b { color: #3c3c44; font-weight: 500; }
+  .hr { height: 1px; background: #ececf0; margin: 14px 0; }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="rail">
+    <div class="mark"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 18 12 5l7 13"/><path d="M8.5 14h7"/></svg></div>
+    <a href="#"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg></a>
+    <a href="#"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M8 5.5v13l10-6.5z"/></svg></a>
+    <a href="#"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 7h16M4 12h16M4 17h10"/></svg></a>
+    <a href="#"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 6h16v13H4z"/><path d="M8 6V4h8v2"/></svg></a>
+    <a href="#"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="6" y="6" width="12" height="12" rx="3"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></svg></a>
+    <a class="sp" href="#"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 1.56V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.88l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.56V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.2.6.76 1 1.56 1H21a2 2 0 1 1 0 4h-.09c-.8 0-1.36.4-1.51 1z"/></svg></a>
+  </aside>
+  <main class="main">
+    <div class="top">
+      <div><div class="k">DESIGN SPECIMEN</div><h1>Quiet Monochrome · 静默灰阶</h1><div class="sub">灰度承载信息，紫色只做“当前在哪”。适合高频、长时间、批量操作。</div></div>
+      <span class="tag">DIRECTION C · v0.15</span>
+    </div>
+    <div class="cols">
+      <div>
+        <h2>色彩 · 一个灰阶 + 一个强调</h2>
+        <div class="ramp">
+          <div style="background:#17171a"><b>Ink</b><span>#17171A</span></div>
+          <div style="background:#3c3c44"><b>Strong</b><span>#3C3C44</span></div>
+          <div style="background:#6e6e76"><b>Body</b><span>#6E6E76</span></div>
+          <div style="background:#9a9aa2"><b>Muted</b><span>#9A9AA2</span></div>
+          <div style="background:#e4e4e8" class="light"><b>Hairline</b><span>#E4E4E8</span></div>
+          <div style="background:#f4f4f6" class="light"><b>Canvas</b><span>#F4F4F6</span></div>
+        </div>
+        <div class="accent">
+          <div class="sw"><b>Accent · #7C5CFF</b><span>只用于当前/主操作</span></div>
+          <div class="note">全屏紫色面积不超过 5%。成功/失败用语义色，不用紫色替代。</div>
+        </div>
+        <div class="hr"></div>
+        <h2>语义色</h2>
+        <div class="states">
+          <span style="color:#1e8e5a"><i class="sq" style="background:#1e8e5a"></i>完成</span>
+          <span style="color:#c64257"><i class="sq" style="background:#c64257"></i>失败</span>
+          <span style="color:#b7791f"><i class="sq" style="background:#b7791f"></i>警告</span>
+          <span style="color:#9a9aa2"><i class="sq" style="background:#c5c5cc"></i>等待</span>
+        </div>
+      </div>
+      <div>
+        <h2>字体 · 界面优先</h2>
+        <div class="type">
+          <div class="row"><span class="t20">任务与页面标题</span><span>19 / 650</span></div>
+          <div class="row"><span class="t13">正文、表格、表单</span><span>12.5 / 400</span></div>
+          <div class="row"><span class="t11">辅助信息</span><span>11 / 400</span></div>
+          <div class="row"><span class="t10">标签（字距 +10%）</span><span>9 / 650</span></div>
+          <div class="row"><span class="mono">BV1GJ411x7h7 · 18:20</span><span>10.5 / 等宽</span></div>
+        </div>
+        <div class="hr"></div>
+        <h2>间距 · 4 的倍数</h2>
+        <div class="space">
+          <div><i style="width:4px;height:4px"></i>4</div><div><i style="width:8px;height:8px"></i>8</div>
+          <div><i style="width:12px;height:12px"></i>12</div><div><i style="width:16px;height:16px"></i>16</div>
+          <div><i style="width:20px;height:20px"></i>20</div><div><i style="width:26px;height:26px"></i>26</div>
+          <div><i style="width:32px;height:32px"></i>32</div>
+        </div>
+        <div class="hr"></div>
+        <h2>圆角与层次</h2>
+        <div class="rules">控件 6–7px · 面板 8px · 不用大圆角<br>层次靠 <b>底色差 + 1px 线</b>，不靠阴影<br>浮层唯一使用阴影：0 8px 24px / 8%</div>
+      </div>
+      <div>
+        <h2>组件</h2>
+        <div class="components">
+          <div style="display:flex;gap:6px"><button class="btn pri">开始任务</button><button class="btn dark">打开目录</button><button class="btn">暂停</button></div>
+          <div class="field">粘贴 B 站链接，回车开始…</div>
+          <div style="display:flex;gap:10px;font-size:9.5px;color:#6e6e76">
+            <span style="display:inline-flex;align-items:center;gap:4px"><i class="sq" style="background:#7c5cff"></i>运行中 62%</span>
+            <span style="display:inline-flex;align-items:center;gap:4px"><i class="sq" style="background:#1e8e5a"></i>已完成</span>
+            <span style="display:inline-flex;align-items:center;gap:4px"><i class="sq" style="background:#c64257"></i>失败</span>
+          </div>
+        </div>
+        <div class="hr"></div>
+        <h2>动效</h2>
+        <div class="mot">
+          <div><span>状态点 / 颜色</span><b>120ms</b></div>
+          <div><span>进度条</span><b>线性</b></div>
+          <div><span>面板切换</span><b>160ms · ease-out</b></div>
+          <div><span>浮层</span><b>180ms · 位移 4px</b></div>
+        </div>
+        <div class="hr"></div>
+        <h2>规则</h2>
+        <div class="rules"><b>灰阶先成立</b>：去掉颜色也能读懂层级与状态。<br><b>紫色是路标</b>：只回答“现在在哪、下一步点哪”。<br><b>密度服务扫读</b>：行高 28–32，表格不用斑马纹。<br><b>禁止</b>：彩色图标、渐变、玻璃、装饰性阴影。</div>
+      </div>
+    </div>
+  </main>
+</div>
+</body>
+</html>
