@@ -68,7 +68,7 @@ class StatusPill(QLabel):
         self.setStyleSheet(
             "QLabel#StatusPill {"
             f"background: {soft}; color: {color};"
-            f"border-radius: 11px; font-size: 10.5px; font-weight: 600;"
+            f"border-radius: 11px; font-size: 11px; font-weight: 600;"
             "}"
         )
 
@@ -91,7 +91,7 @@ def _current_theme() -> str:
 class TimelineRow(QWidget):
     """单步：左侧圆圈 + 上下连接线，右侧标题/说明/状态。"""
 
-    HEIGHT = 38
+    HEIGHT = 40
 
     def __init__(self, name: str, title: str, index: int, last: bool, parent=None) -> None:
         super().__init__(parent)
@@ -103,9 +103,9 @@ class TimelineRow(QWidget):
         self.setFixedHeight(self.HEIGHT)
 
         self.title_label = QLabel(title)
-        self.title_label.setStyleSheet("font-size: 12px; font-weight: 500;")
+        self.title_label.setStyleSheet("font-size: 12.5px; font-weight: 500;")
         self.meta_label = QLabel("等待")
-        self.meta_label.setStyleSheet("font-size: 9.5px;")
+        self.meta_label.setStyleSheet("font-size: 11px;")
         self.right_label = QLabel("")
         self.right_label.setStyleSheet("font-size: 10px;")
         self.right_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
@@ -137,17 +137,17 @@ class TimelineRow(QWidget):
             self.title_label.setStyleSheet(
                 f"font-size: 12.5px; font-weight: 500; color: {c['text_muted']};"
             )
-            self.meta_label.setStyleSheet(f"font-size: 9.5px; color: {c['text_faint']};")
+            self.meta_label.setStyleSheet(f"font-size: 11px; color: {c['text_faint']};")
         elif self.state == "running":
             self.title_label.setStyleSheet(
                 f"font-size: 12.5px; font-weight: 650; color: {c['text']};"
             )
-            self.meta_label.setStyleSheet(f"font-size: 9.5px; color: {c['accent']};")
+            self.meta_label.setStyleSheet(f"font-size: 11px; color: {c['accent']};")
         else:
             self.title_label.setStyleSheet(
                 f"font-size: 12.5px; font-weight: 500; color: {c['text']};"
             )
-            self.meta_label.setStyleSheet(f"font-size: 9.5px; color: {color};")
+            self.meta_label.setStyleSheet(f"font-size: 11px; color: {color};")
         self.update()
 
     def paintEvent(self, event) -> None:  # noqa: N802, ANN001 - Qt 命名
@@ -245,24 +245,31 @@ class EmptyState(QWidget):
         layout.setContentsMargins(24, 20, 24, 20)
         layout.setSpacing(6)
         layout.addStretch(1)
-        icon_label = QLabel()
-        icon_label.setPixmap(
-            theme.icon(icon_name, theme.palette("light")["text_faint"], size=26).pixmap(26, 26)
-        )
-        icon_label.setAlignment(Qt.AlignCenter)
-        head = QLabel(title)
-        head.setAlignment(Qt.AlignCenter)
-        head.setStyleSheet("font-size: 12.5px; font-weight: 600;")
-        sub = QLabel(subtitle)
-        sub.setAlignment(Qt.AlignCenter)
-        sub.setWordWrap(True)
-        sub.setObjectName("Muted")
-        sub.setStyleSheet("font-size: 10.5px;")
-        layout.addWidget(icon_label)
-        layout.addWidget(head)
-        layout.addWidget(sub)
+        self.icon_name = icon_name
+        self.icon_label = QLabel()
+        self.icon_label.setAlignment(Qt.AlignCenter)
+        self.apply_theme()
+        self.head = QLabel(title)
+        self.head.setAlignment(Qt.AlignCenter)
+        self.head.setStyleSheet("font-size: 12.5px; font-weight: 600;")
+        self.sub = QLabel(subtitle)
+        self.sub.setAlignment(Qt.AlignCenter)
+        self.sub.setWordWrap(True)
+        self.sub.setObjectName("Muted")
+        self.sub.setStyleSheet("font-size: 11px;")
+        layout.addWidget(self.icon_label)
+        layout.addWidget(self.head)
+        layout.addWidget(self.sub)
         layout.addStretch(1)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+
+    def set_texts(self, title: str, subtitle: str) -> None:
+        self.head.setText(title)
+        self.sub.setText(subtitle)
+
+    def apply_theme(self) -> None:
+        color = theme.palette(_current_theme())["text_faint"]
+        self.icon_label.setPixmap(theme.icon(self.icon_name, color, size=26).pixmap(26, 26))
 
 
 class Card(QFrame):

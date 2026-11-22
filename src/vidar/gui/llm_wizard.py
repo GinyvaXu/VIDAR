@@ -42,8 +42,16 @@ class ConnectionTestWorker(QThread):
     def run(self) -> None:
         from ..llm.providers import test_connection
 
-        report = test_connection(self._llm)
+        try:
+            report = test_connection(self._llm)
+        except Exception as exc:  # noqa: BLE001 - 网络/证书/DNS 异常都要有出口
+            self.done.emit(False, f"连接测试失败：{exc}", "检查网络或 API 地址")
+            return
         self.done.emit(report.ok, report.message, report.hint)
+
+    def cancel(self) -> None:
+        """与其它 Worker 保持同一接口；网络请求本身不可中断，仅标记退出意图。"""
+        self.requestInterruption()
 
 
 class LlmWizardDialog(QDialog):
@@ -195,6 +203,20 @@ class LlmWizardDialog(QDialog):
             webbrowser.open(preset.key_url)
 
     # ------------------------------------------------------------------ #
+    def _stop_worker(self) -> None:
+        worker = self._test_worker
+        if worker is not None and worker.isRunning() and not worker.wait(2500):
+            worker.terminate()
+            worker.wait(800)
+
+    def closeEvent(self, event) -> None:  # noqa: N802, ANN001
+        self._stop_worker()
+        super().closeEvent(event)
+
+    def reject(self) -> None:
+        self._stop_worker()
+        super().reject()
+
     def _build_llm_settings(self) -> LlmSettings:
         """用当前表单值构造测试用配置（Key 留空时回退该预设的环境变量）。"""
         key = self.api_key.text().strip()

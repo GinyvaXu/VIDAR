@@ -159,6 +159,15 @@ class PreviewDialog(QDialog):
         combo.setCurrentIndex(index if index >= 0 else 0)
 
     # ------------------------------------------------------------------ #
+    def closeEvent(self, event) -> None:  # noqa: N802, ANN001
+        worker = self._worker
+        if worker is not None and worker.isRunning():
+            self.status.setText("正在结束渲染…")
+            if not worker.wait(6000):
+                worker.terminate()
+                worker.wait(1000)
+        super().closeEvent(event)
+
     def render(self) -> None:
         if self._worker is not None and self._worker.isRunning():
             return

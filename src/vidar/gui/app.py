@@ -285,6 +285,7 @@ class MainWindow(QMainWindow):
         self._model_progress_state: tuple[float, int] | None = None
         self._failed_step = ""
         self._last_source = ""
+        self._pending_source: str | None = None
 
         self.setWindowTitle("VIDAR — B站视频知识提取")
         self.resize(1180, 760)
@@ -317,14 +318,27 @@ class MainWindow(QMainWindow):
         layout.setSpacing(0)
 
         self.pages = QStackedWidget()
-        self.pages.addWidget(self._build_home_page())
+        self.pages.addWidget(self._scroll_wrap(self._build_home_page(), 760))
         self.pages.addWidget(self._build_task_page())
-        self.pages.addWidget(self._build_batch_page())
-        self.pages.addWidget(self._build_library_page())
-        self.pages.addWidget(self._build_models_page())
+        self.pages.addWidget(self._scroll_wrap(self._build_batch_page(), 700))
+        self.pages.addWidget(self._scroll_wrap(self._build_library_page(), 720))
+        self.pages.addWidget(self._scroll_wrap(self._build_models_page(), 680))
         self.pages.addWidget(self._build_settings_page())
         layout.addWidget(self._build_sidebar())
         layout.addWidget(self.pages, 1)
+    def _scroll_wrap(self, body: QWidget, min_height: int) -> QWidget:
+        body.setMinimumHeight(min_height)
+        page = QWidget()
+        page.setObjectName("Page")
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setWidget(body)
+        layout.addWidget(scroll)
+        return page
+
     def _build_sidebar(self) -> QWidget:
         side = QFrame()
         side.setObjectName("Sidebar")
@@ -437,6 +451,7 @@ class MainWindow(QMainWindow):
         self.url_edit.setMinimumHeight(44)
         self.url_edit.setStyleSheet("font-size: 14px; padding: 10px 14px;")
         self.url_edit.returnPressed.connect(self._start)
+        self.url_edit.textEdited.connect(self._clear_pending_key)
         card_layout.addWidget(self.url_edit)
 
         row = QHBoxLayout()
@@ -776,6 +791,7 @@ class MainWindow(QMainWindow):
             "list", "队列为空", "粘贴链接后点「加入队列」，多条会顺序执行"
         )
         queue_card.body.addWidget(self.queue_empty)
+        self.batch_table.setVisible(False)
         layout.addWidget(queue_card, 1)
 
         actions = QHBoxLayout()
@@ -867,7 +883,7 @@ class MainWindow(QMainWindow):
         content = QHBoxLayout()
         content.setSpacing(12)
         list_card = Card("全部任务", "")
-        list_card.setFixedWidth(430)
+        list_card.setFixedWidth(360)
         self.history = QListWidget()
         self.history.setObjectName("HistoryList")
         self.history.itemDoubleClicked.connect(self._load_history_item)
@@ -889,8 +905,14 @@ class MainWindow(QMainWindow):
         self.history_meta.setWordWrap(True)
         detail_card.body.addWidget(self.history_meta)
         self.history_detail = QTableWidget(0, 3)
-        self.history_detail.setHorizontalHeaderLabels(["步骤", "内容", "状态"])
-        self.history_detail.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.history_detail.setHorizontalHeaderLabels(["步骤", "标识", "状态"])
+        detail_header = self.history_detail.horizontalHeader()
+        detail_header.setSectionResizeMode(0, QHeaderView.Stretch)
+        detail_header.setSectionResizeMode(1, QHeaderView.Fixed)
+        detail_header.setSectionResizeMode(2, QHeaderView.Fixed)
+        self.history_detail.setColumnWidth(1, 92)
+        self.history_detail.setColumnWidth(2, 78)
+        self.history_detail.setColumnHidden(1, True)
         self.history_detail.horizontalHeader().setDefaultAlignment(
             Qt.AlignLeft | Qt.AlignVCenter
         )
@@ -904,7 +926,8 @@ class MainWindow(QMainWindow):
         self.detail_empty = EmptyState("list", "未选择任务", "从左侧选择一条任务，查看步骤与产物")
         detail_card.body.addWidget(self.detail_empty)
         self.history_detail.setVisible(False)
-        actions = QHBoxLayout()
+        actions_top = QHBoxLayout()
+        actions_bottom = QHBoxLayout()
         self.history_resume_btn = QPushButton("继续")
         self.history_resume_btn.setObjectName("Primary")
         self.history_resume_btn.setToolTip("从第一个未完成步骤继续")
@@ -916,17 +939,18 @@ class MainWindow(QMainWindow):
         self.history_open_notes_btn.setToolTip("打开 Markdown 文稿")
         self.history_preview_btn = QPushButton("预览")
         self.history_preview_btn.setToolTip("预览 PDF / EPUB 排版")
+        for button in (self.history_resume_btn, self.history_rerun_btn):
+            button.setIconSize(QSize(15, 15))
+            actions_top.addWidget(button)
         for button in (
-            self.history_resume_btn,
-            self.history_rerun_btn,
             self.history_open_out_btn,
             self.history_open_notes_btn,
             self.history_preview_btn,
         ):
             button.setIconSize(QSize(15, 15))
-            actions.addWidget(button)
-        actions.addStretch(1)
-        detail_card.body.addLayout(actions)
+            actions_bottom.addWidget(button)
+        detail_card.body.addLayout(actions_top)
+        detail_card.body.addLayout(actions_bottom)
         content.addWidget(detail_card, 1)
         layout.addLayout(content, 1)
 
@@ -1122,16 +1146,17 @@ class MainWindow(QMainWindow):
         export.body.addLayout(row1)
         row2 = QHBoxLayout()
         self.set_pdf_style = QComboBox()
-        self.set_pdf_style.addItems(["newspaper", "paper"])
-        self.set_pdf_style.setCurrentText(self.settings.export.pdf_style)
+        self.set_pdf_style.addItem("报刊", "newspaper")
+        self.set_pdf_style.addItem("论文", "paper")
+        self._ensure_combo_value(self.set_pdf_style, self.settings.export.pdf_style)
         self.set_pdf_mode = QComboBox()
-        self.set_pdf_mode.addItems(["full", "brief"])
-        self.set_pdf_mode.setCurrentText(self.settings.export.pdf_mode)
+        self.set_pdf_mode.addItem("全文", "full")
+        self.set_pdf_mode.addItem("精简", "brief")
+        self._ensure_combo_value(self.set_pdf_mode, self.settings.export.pdf_mode)
         self.set_pdf_scale = QComboBox()
         for label, value in (("紧凑", "compact"), ("标准", "standard"), ("大", "large")):
             self.set_pdf_scale.addItem(label, value)
-        index = self.set_pdf_scale.findData(self.settings.export.pdf_scale)
-        self.set_pdf_scale.setCurrentIndex(max(0, index))
+        self._ensure_combo_value(self.set_pdf_scale, self.settings.export.pdf_scale)
         row2.addWidget(QLabel("PDF 风格"))
         row2.addWidget(self.set_pdf_style)
         row2.addWidget(QLabel("篇幅"))
@@ -1241,6 +1266,12 @@ class MainWindow(QMainWindow):
         self.about_icon.setPixmap(theme.app_icon().pixmap(56, 56))
         self.task_pill.apply_theme()
         self.steps_table.apply_theme()
+        if hasattr(self, "batch_table"):
+            self._refresh_batch_table(persist=False)
+        for attr in ("queue_empty", "history_empty", "recent_empty", "detail_empty"):
+            widget = getattr(self, attr, None)
+            if widget is not None:
+                widget.apply_theme()
         for value, button in getattr(self, "theme_buttons", {}).items():
             active = (value == self.theme_name and self.settings.ui.theme != "auto") or (
                 value == "auto" and self.settings.ui.theme == "auto"
@@ -1292,14 +1323,19 @@ class MainWindow(QMainWindow):
             target = new_settings.config_path or default_config_path()
             write_config_dict(target, export_settings_dict(new_settings))
             self.settings = new_settings
+            self._apply_theme()
         except OSError:
             self._append_log("主题偏好保存失败（不影响本次使用）")
+        self.refresh_history()
+        self._sync_recent()
 
     def _set_theme_value(self, value: str) -> None:
         if not self._apply_and_save({"ui": {"theme": value}}, f"主题已设为 {value}"):
             return
         self.theme_name = theme.resolve_theme(value)
         self._apply_theme()
+        self.refresh_history()
+        self._sync_recent()
 
     # ------------------------------------------------------------------ #
     # 工作台 / 资料库辅助
@@ -1343,21 +1379,47 @@ class MainWindow(QMainWindow):
             if item is None:
                 continue
             meta = item.data(Qt.UserRole) or {}
-            haystack = f"{item.text()} {meta.get('url', '')}".lower()
+            haystack = (
+                f"{item.text()} {meta.get('url', '')} {meta.get('key', '')}"
+            ).lower()
             hidden = bool(query) and query not in haystack
             if not hidden and mode != "all":
-                suffix = str((item.data(Qt.UserRole) or {}).get("suffix") or "")
-                done = "全部完成" in suffix
-                failed = "失败" in suffix
+                state = str(meta.get("status") or "open")
                 if (
-                    (mode == "done" and not done)
-                    or (mode == "failed" and not failed)
-                    or (mode == "open" and done)
+                    (mode == "done" and state != "done")
+                    or (mode == "failed" and state != "failed")
+                    or (mode == "open" and state not in ("open", "paused"))
                 ):
                     hidden = True
             item.setHidden(hidden)
             visible += int(not hidden)
+        current = self.history.currentItem()
+        if current is not None and current.isHidden():
+            for row in range(self.history.count()):
+                candidate = self.history.item(row)
+                if candidate is not None and not candidate.isHidden():
+                    self.history.setCurrentItem(candidate)
+                    break
+            else:
+                self.history.setCurrentItem(None)
+        if visible == 0:
+            has_any = self.history.count() > 0
+            self.history_empty.set_texts(
+                "没有匹配的任务" if has_any else "资料库还是空的",
+                "换个关键词或状态筛选" if has_any else "完成第一条视频后，产物与进度会出现在这里",
+            )
         self.history_empty.setVisible(visible == 0)
+
+    @staticmethod
+    def _ensure_combo_value(combo: QComboBox, value: str) -> None:
+        """配置里已有但下拉框没有的值（如 pdf_scale=1.2）原样保留，不被首项覆盖。"""
+        if not value:
+            return
+        index = combo.findData(value)
+        if index < 0:
+            combo.addItem(f"自定义（{value}）", value)
+            index = combo.count() - 1
+        combo.setCurrentIndex(index)
 
     def _save_asr_settings(self) -> None:
         patch = {
@@ -1398,8 +1460,8 @@ class MainWindow(QMainWindow):
                 "pdf": self.set_pdf.isChecked(),
                 "docx": self.set_docx.isChecked(),
                 "epub": self.set_epub.isChecked(),
-                "pdf_style": self.set_pdf_style.currentText(),
-                "pdf_mode": self.set_pdf_mode.currentText(),
+                "pdf_style": self.set_pdf_style.currentData(),
+                "pdf_mode": self.set_pdf_mode.currentData(),
                 "pdf_scale": self.set_pdf_scale.currentData(),
             }
         }
@@ -1436,28 +1498,42 @@ class MainWindow(QMainWindow):
         self._append_log("日志已复制到剪贴板")
 
     def _repair_from_error(self) -> None:
-        from ..model_store import default_model_dir, repair_model
+        import re
 
-        alias = self.settings.asr.model
-        target = Path(alias).expanduser()
-        if not target.is_dir():
-            target = default_model_dir(alias)
+        from ..asr import resolve_model_reference
+        from ..model_store import repair_model, write_preprocessor_config
+
         try:
-            changed = repair_model(alias, target)
+            target = Path(resolve_model_reference(self.settings.asr.model))
         except VidarError as exc:
             self._append_log(f"修复失败：{exc.message}")
+            self.error_hint.setText(exc.message + (f"\n{exc.hint}" if exc.hint else ""))
+            return
+        try:
+            try:
+                changed = repair_model(self.settings.asr.model, target)
+            except VidarError:
+                match = re.search(r"\(1,\s*(\d+),\s*3000\)", self.error_message.text())
+                if match is None:
+                    self._append_log("修复失败：无法从报错中推断 mel 维度")
+                    return
+                write_preprocessor_config(target, int(match.group(1)))
+                changed = True
+        except OSError as exc:
+            self._append_log(f"修复失败：{exc}")
+            self.error_hint.setText(f"无法写入模型目录：{exc}")
             return
         self._append_log(f"已{'写入' if changed else '确认'} preprocessor_config.json：{target}")
         self._retry_failed()
 
     def _repair_selected_model(self) -> None:
-        from ..model_store import default_model_dir, repair_model
+        from ..model_store import default_model_dir, find_model_dir, repair_model
 
         alias = self._selected_model_alias()
         if not alias:
             QMessageBox.information(self, "提示", "先在表格里选一个模型")
             return
-        target = default_model_dir(alias)
+        target = find_model_dir(alias) or default_model_dir(alias)
         if not (target / "model.bin").exists():
             self.model_status.setText(f"未安装：{target}")
             return
@@ -1488,29 +1564,45 @@ class MainWindow(QMainWindow):
                 }
                 for item in self.batch_items
             ]
-            path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-        except OSError:
-            return
+            tmp = path.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+            tmp.replace(path)
+        except OSError as exc:
+            self._append_log(f"队列未能保存：{exc}")
 
     def _restore_queue(self) -> None:
         try:
             path = self._queue_path()
             if not path.exists():
                 return
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
+            data = json.loads(path.read_text(encoding="utf-8-sig"))
+        except (OSError, ValueError) as exc:
+            backup = path.with_suffix(".json.bak")
+            try:
+                if path.exists() and not backup.exists():
+                    backup.write_bytes(path.read_bytes())
+            except OSError:
+                pass
+            self._append_log(f"队列文件无法解析，已备份到 {backup.name}：{exc}")
             return
         if not isinstance(data, list) or self.batch_items:
             return
         for entry in data:
             if not isinstance(entry, dict) or not entry.get("source"):
                 continue
+            status = str(entry.get("status") or "pending")
+            note = str(entry.get("note") or "")
+            if status == "running":
+                status = "pending"
+                note = "上次中断，可重新开始"
+            elif status not in ("pending", "done", "failed", "cancelled"):
+                status = "pending"
             self.batch_items.append(
                 {
                     "source": str(entry["source"]),
-                    "status": str(entry.get("status") or "pending"),
+                    "status": status,
                     "error": str(entry.get("error") or ""),
-                    "note": str(entry.get("note") or ""),
+                    "note": note,
                 }
             )
         if self.batch_items:
@@ -1523,10 +1615,16 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "提示", "请先粘贴 BV 号或视频链接")
             return
         if self._task_busy():
+            self._clear_pending_key()
             QMessageBox.information(self, "提示", "已有任务在运行，请先等待或取消")
             return
 
-        self.last_key = make_key(source)
+        # 只有来源一致时才沿用历史任务目录；否则按新链接重新生成 key，
+        # 避免“载入历史后改了 URL”把新视频写进旧任务目录。
+        pending_key = self._pending_key if self._pending_source == source else None
+        self._pending_key = None
+        self._pending_source = None
+        self.last_key = pending_key or make_key(source)
         self._render_steps({name: "等待" for name in STEP_ORDER})
         self.progress.setValue(0)
         self.status_label.setText("启动中…")
@@ -1541,8 +1639,6 @@ class MainWindow(QMainWindow):
         self.nav.setCurrentRow(PAGE_TASK)
         self._set_running(True)
 
-        pending_key = self._pending_key
-        self._pending_key = None
         self.worker = PipelineWorker(
             self.settings, source, self.from_combo.currentData(), key=pending_key
         )
@@ -1551,6 +1647,10 @@ class MainWindow(QMainWindow):
         self.worker.ok.connect(self._on_ok)
         self.worker.finished.connect(self._on_worker_finished)
         self.worker.start()
+
+    def _clear_pending_key(self, _text: str = "") -> None:
+        self._pending_key = None
+        self._pending_source = None
 
     def _cancel(self) -> None:
         if self.worker is not None:
@@ -1627,12 +1727,16 @@ class MainWindow(QMainWindow):
             self._append_log(f"步骤 [{step}] 失败：{data.get('error', '')}")
         elif event == "paused":
             self.status_label.setText("已暂停（可「继续」；或「释放显存」后从历史页续跑）")
+            self.task_pill.set_status("已暂停", "paused")
+            self.task_kicker.setText("已暂停 · 可继续或释放显存")
         elif event == "resumed":
             self.status_label.setText("继续运行…")
         elif event == "step_paused":
             self._append_log(f"步骤 [{step}] 已保存检查点并暂停（可继续）")
         elif event == "run_paused":
             self.status_label.setText("已暂停并释放资源：历史页可一键「继续」")
+            self.task_pill.set_status("已暂停", "paused")
+            self.task_kicker.setText("已释放显存 · 从资料库可继续")
             self._append_log("运行已暂停：检查点已保存，继续时不会重跑已完成部分")
         elif event == "run_finished":
             self.status_label.setText("全部完成")
@@ -1641,6 +1745,8 @@ class MainWindow(QMainWindow):
             self._append_log("全部步骤完成。")
         elif event == "cancelled":
             self.status_label.setText("已取消")
+            self.task_pill.set_status("已取消", "cancelled")
+            self.task_kicker.setText("已取消 · 可从中断步骤续跑")
             self._append_log("任务已取消（可从中断步骤续跑）。")
 
     def _on_failed(self, message: str, hint: str) -> None:
@@ -1684,9 +1790,15 @@ class MainWindow(QMainWindow):
         if not work_root.exists():
             self._filter_history()
             return
+        def _mtime(path: Path) -> float:
+            try:
+                return path.stat().st_mtime
+            except OSError:
+                return 0.0
+
         folders = sorted(
             (p for p in work_root.iterdir() if p.is_dir() and not p.name.startswith("_")),
-            key=lambda p: p.stat().st_mtime,
+            key=_mtime,
             reverse=True,
         )
         for folder in folders:
@@ -1697,9 +1809,23 @@ class MainWindow(QMainWindow):
                 state = json.loads(state_path.read_text(encoding="utf-8"))
             except (ValueError, OSError):
                 continue
-            steps = state.get("steps", {})
-            done = sum(1 for rec in steps.values() if rec.get("status") == "done")
-            failed = [name for name, rec in steps.items() if rec.get("status") == "failed"]
+            steps = state.get("steps")
+            if not isinstance(steps, dict):
+                steps = {}
+            done = sum(
+                1
+                for rec in steps.values()
+                if isinstance(rec, dict) and rec.get("status") == "done"
+            )
+            records = [rec for rec in steps.values() if isinstance(rec, dict)]
+            all_done = bool(records) and all(
+                rec.get("status") == "done" for rec in records
+            )
+            failed = [
+                name
+                for name, rec in steps.items()
+                if isinstance(rec, dict) and rec.get("status") == "failed"
+            ]
             title = ""
             url = ""
             meta_path = folder / "meta.json"
@@ -1714,7 +1840,9 @@ class MainWindow(QMainWindow):
                 (
                     name
                     for name, rec in steps.items()
-                    if rec.get("status") == "pending" and "已暂停" in str(rec.get("error") or "")
+                    if isinstance(rec, dict)
+                    and rec.get("status") == "pending"
+                    and "已暂停" in str(rec.get("error") or "")
                 ),
                 None,
             )
@@ -1725,19 +1853,32 @@ class MainWindow(QMainWindow):
             elif paused_step:
                 suffix = f"已暂停（{paused_step}）"
                 icon_name, icon_color = "pause", colors["warning"]
-            elif done >= len(STEP_ORDER):
+            elif all_done:
                 suffix = "全部完成"
                 icon_name, icon_color = "circle-check", colors["success"]
             else:
                 suffix = f"{done}/{len(STEP_ORDER)} 步"
                 icon_name, icon_color = "play", colors["text_muted"]
             display = title or url or folder.name
-            item = QListWidgetItem(display)
+            if failed:
+                state = "failed"
+            elif paused_step:
+                state = "paused"
+            elif all_done:
+                state = "done"
+            else:
+                state = "open"
+            item = QListWidgetItem(f"{suffix} · {display}")
             item.setData(
                 Qt.UserRole,
-                {"key": folder.name, "url": url or folder.name, "suffix": suffix},
+                {
+                    "key": folder.name,
+                    "url": url or folder.name,
+                    "suffix": suffix,
+                    "status": state,
+                },
             )
-            item.setToolTip(f"{folder.name}\n{url or '（未解析）'}\n{suffix}")
+            item.setToolTip(f"{display}\n{url or '（未解析）'}\n{suffix}")
             item.setIcon(theme.icon(icon_name, icon_color, size=16))
             item.setSizeHint(QSize(0, 46))
             self.history.addItem(item)
@@ -1786,7 +1927,9 @@ class MainWindow(QMainWindow):
         steps = self._history_state(key)
         labels = {"done": "完成 ✓", "failed": "失败 ✗", "running": "运行中…", "pending": "等待"}
         for name in STEP_ORDER:
-            record = steps.get(name) or {}
+            record = steps.get(name)
+            if not isinstance(record, dict):
+                record = {}
             status = str(record.get("status") or "")
             note = str(record.get("error") or "")
             label = labels.get(status, "—")
@@ -1826,6 +1969,15 @@ class MainWindow(QMainWindow):
             return
         if self._task_busy():
             QMessageBox.information(self, "提示", "已有任务在运行")
+            return
+        state_path = resolve_path(self.settings.paths.work_dir) / key / "state.json"
+        if not state_path.exists():
+            QMessageBox.warning(
+                self,
+                "提示",
+                "该任务的 state.json 缺失或不可读，无法从断点继续。\n"
+                "请用「重跑此步」指定步骤，或在任务页从头开始。",
+            )
             return
         from_step = self._first_unfinished_step(key)
         if from_step is None:
@@ -1869,13 +2021,16 @@ class MainWindow(QMainWindow):
         index = STEP_ORDER.index(from_step) + 1 if from_step in STEP_ORDER else 0
         self.from_combo.setCurrentIndex(index)
         self._pending_key = key
+        self._pending_source = source
         self.nav.setCurrentRow(PAGE_TASK)
         self._start()
 
     def _load_history_item(self, item: QListWidgetItem) -> None:
         data = item.data(Qt.UserRole) or {}
-        self.url_edit.setText(str(data.get("url") or data.get("key") or ""))
+        loaded_source = str(data.get("url") or data.get("key") or "")
+        self.url_edit.setText(loaded_source)
         self._pending_key = str(data.get("key") or "") or None
+        self._pending_source = loaded_source
         from_step = self._first_unfinished_step(str(data.get("key") or ""))
         if from_step:
             index = STEP_ORDER.index(from_step) + 1  # 0 = 从头开始
@@ -1891,11 +2046,17 @@ class MainWindow(QMainWindow):
         if not state_path.exists():
             return None
         try:
-            steps = json.loads(state_path.read_text(encoding="utf-8")).get("steps", {})
+            steps = json.loads(state_path.read_text(encoding="utf-8")).get("steps")
         except (ValueError, OSError):
             return None
+        if not isinstance(steps, dict):
+            return None
+        records = [rec for rec in steps.values() if isinstance(rec, dict)]
+        if records and all(rec.get("status") == "done" for rec in records):
+            return None  # 旧版步数更少但已全部完成：不要为了新步骤重跑旧产物
         for name in STEP_ORDER:
-            if steps.get(name, {}).get("status") != "done":
+            record = steps.get(name)
+            if not isinstance(record, dict) or record.get("status") != "done":
                 return name
         return None
 
@@ -1913,7 +2074,7 @@ class MainWindow(QMainWindow):
         scrollbar = self.batch_log_view.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
 
-    def _refresh_batch_table(self) -> None:
+    def _refresh_batch_table(self, *, persist: bool = True) -> None:
         labels = {
             "pending": "等待",
             "running": "运行中…",
@@ -1958,17 +2119,23 @@ class MainWindow(QMainWindow):
             if failed:
                 parts.append(f"失败 {failed}")
             self.batch_status.setText(" · ".join(parts) + "（点「开始队列」）")
+        terminal = sum(
+            1
+            for item in self.batch_items
+            if item["status"] in ("done", "failed", "cancelled")
+        )
         self.batch_progress.setValue(
-            int(1000 * self._batch_done / self._batch_launched) if self._batch_launched else 0
+            int(1000 * terminal / len(self.batch_items)) if self.batch_items else 0
         )
         self.batch_count_label.setText(f"{len(self.batch_items)} 个任务")
         has_items = bool(self.batch_items)
         self.batch_table.setVisible(has_items)
         self.queue_empty.setVisible(not has_items)
-        self._persist_queue()
+        if persist:
+            self._persist_queue()
 
     def _batch_add_sources(self, sources: list[str]) -> int:
-        existing = {item["source"] for item in self.batch_items if item["status"] == "pending"}
+        existing = {item["source"] for item in self.batch_items}
         added = 0
         for source in sources:
             text = source.strip()
@@ -2010,6 +2177,7 @@ class MainWindow(QMainWindow):
 
     def _batch_clear(self) -> None:
         if self._task_busy():
+            QMessageBox.information(self, "提示", "有任务在运行，先等待完成或取消")
             return
         self.batch_items.clear()
         self._batch_done = 0
@@ -2020,6 +2188,7 @@ class MainWindow(QMainWindow):
 
     def _batch_remove_selected(self) -> None:
         if self._task_busy():
+            QMessageBox.information(self, "提示", "有任务在运行，先等待完成或取消")
             return
         row = self.batch_table.currentRow()
         if row < 0 or row >= len(self.batch_items):
@@ -2031,6 +2200,7 @@ class MainWindow(QMainWindow):
 
     def _batch_retry_failed(self) -> None:
         if self._task_busy():
+            QMessageBox.information(self, "提示", "有任务在运行，先等待完成或取消")
             return
         reset = 0
         for item in self.batch_items:
@@ -2128,7 +2298,11 @@ class MainWindow(QMainWindow):
         if event == "batch_finished":
             done = int(data.get("done") or 0)
             failed = int(data.get("failed") or 0)
-            self._batch_done = self._batch_launched  # 收尾兜底（含被停止的剩余项）
+            self._batch_done = sum(
+                1
+                for entry in self.batch_items
+                if entry["status"] in ("done", "failed", "cancelled")
+            )
             self._refresh_batch_table()
             self.batch_status.setText(
                 f"队列结束：完成 {done} / 失败 {failed}（失败项可「重试失败项」）"
@@ -2158,7 +2332,7 @@ class MainWindow(QMainWindow):
             item["note"] = f"{step} 失败"
         elif event == "run_finished":
             item["note"] = "全部步骤完成"
-        self._refresh_batch_table()
+        self._refresh_batch_table(persist=False)
 
     def _on_batch_done(self, _result: object) -> None:
         if not self.batch_status.text().startswith("队列结束"):
@@ -2176,6 +2350,7 @@ class MainWindow(QMainWindow):
             return
         self._set_batch_running(False)
         self.refresh_history()
+        self._sync_recent()
 
     # ------------------------------------------------------------------ #
     # 结果与设置
@@ -2234,7 +2409,9 @@ class MainWindow(QMainWindow):
         if not source:
             QMessageBox.information(self, "提示", "先跑一次任务，或在历史列表选一条，再打开预览")
             return
-        PreviewDialog(self.settings, source, self).exec()
+        self._preview_dialog = PreviewDialog(self.settings, source, self)
+        self._preview_dialog.exec()
+        self._preview_dialog = None
 
     def _open_result(self, *, notes: bool, prefer_history: bool = False) -> None:
         key = self._current_key(prefer_history=prefer_history)
@@ -2304,29 +2481,42 @@ class MainWindow(QMainWindow):
         from ..asr import cuda_available
         from ..model_store import (
             catalog,
+            check_model,
             detect_vram_gb,
+            find_model_dir,
             models_root,
             recommend_model,
-            resolve_repo,
         )
 
         root = models_root()
         self.model_table.setRowCount(0)
+        colors = theme.palette(self.theme_name)
         for spec in catalog():
-            folder = resolve_repo(spec.alias).split("/")[-1]
-            installed = (root / folder / "model.bin").exists()
+            found = find_model_dir(spec.alias)
+            installed = False
+            note = spec.note
+            if found is not None:
+                results = check_model(found.name, found)
+                broken = [item.name for item in results if not item.ok]
+                installed = not broken
+                if broken:
+                    note = "不完整，缺/坏：" + "、".join(broken)
+                else:
+                    note = f"{spec.note}　·　{found}"
+            status_text = "已安装 ✓" if installed else ("不完整" if found else "—")
+            status_item = QTableWidgetItem(status_text)
+            status_item.setForeground(
+                QColor(
+                    colors["success"] if installed else colors["text_faint"]
+                )
+            )
             row = self.model_table.rowCount()
             self.model_table.insertRow(row)
             self.model_table.setItem(row, 0, QTableWidgetItem(spec.alias))
             self.model_table.setItem(row, 1, QTableWidgetItem(f"≈{spec.approx_mb / 1024:.1f} GB"))
             self.model_table.setItem(row, 2, QTableWidgetItem(f"≥{spec.vram_gb:.0f} GB"))
-            status_item = QTableWidgetItem("已安装 ✓" if installed else "—")
-            colors = theme.palette(self.theme_name)
-            status_item.setForeground(
-                QColor(colors["success"] if installed else colors["text_faint"])
-            )
             self.model_table.setItem(row, 3, status_item)
-            self.model_table.setItem(row, 4, QTableWidgetItem(spec.note))
+            self.model_table.setItem(row, 4, QTableWidgetItem(note))
         if self.model_table.currentRow() < 0:
             self.model_table.selectRow(0)
 
@@ -2448,7 +2638,12 @@ class MainWindow(QMainWindow):
         """运行中关闭窗口：先确认并安全取消，避免 QThread 被强杀崩溃。"""
         workers = [
             worker
-            for worker in (self.worker, self.batch_worker, self.model_worker)
+            for worker in (
+                self.worker,
+                self.batch_worker,
+                self.model_worker,
+                getattr(self, "_llm_test_worker", None),
+            )
             if worker is not None and worker.isRunning()
         ]
         if workers:

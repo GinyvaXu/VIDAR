@@ -131,6 +131,7 @@ def main() -> int:
         window.task_meta.setText("硬地骇客　·　42:18　·　BV1GJ411x7h7")
         window._show_error("任务失败", ERROR_MESSAGE, ERROR_HINT)
         window.progress.setValue(0)
+        window.status_label.setText("失败")
         snap(out / f"task-failed-{theme}.png")
         reset_task()
 

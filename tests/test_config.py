@@ -102,3 +102,37 @@ def test_dump_settings_masks_key(tmp_path: Path) -> None:
     data = dump_settings(settings)
     assert data["llm"]["api_key"] == "sk-1...cdef"
     assert "config_path" not in data
+
+
+def test_dump_settings_is_toml_serializable() -> None:
+    import tomli_w
+
+    from vidar.config import Settings, dump_settings
+
+    data = dump_settings(Settings())
+    rendered = tomli_w.dumps(data)
+    assert "None" not in rendered
+    assert "[paths]" in rendered
+
+
+def test_write_config_dict_drops_none(tmp_path: Path) -> None:
+    import tomli_w
+
+    from vidar.config import write_config_dict
+
+    target = tmp_path / "config.toml"
+    write_config_dict(target, {"paths": {"cookies": None, "output_dir": "out"}})
+    text = target.read_text(encoding="utf-8")
+    assert "cookies" not in text
+    assert tomli_w.dumps({"a": 1})  # 依赖可用性自检
+
+
+def test_invalid_config_type_raises_config_error(tmp_path: Path) -> None:
+    from vidar.errors import ConfigError
+
+    path = tmp_path / "bad.toml"
+    path.write_text("[asr]\nbeam_size = \"five\"\n", encoding="utf-8")
+    with pytest.raises(ConfigError) as excinfo:
+        load_settings(path)
+    assert "类型不正确" in str(excinfo.value.message)
+    assert "asr.beam_size" in str(excinfo.value.message)

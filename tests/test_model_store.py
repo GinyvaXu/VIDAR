@@ -128,3 +128,38 @@ def test_repair_model_writes_128_mels_and_is_idempotent(tmp_path: Path) -> None:
 def test_repair_model_rejects_unknown_repo(tmp_path: Path) -> None:
     with pytest.raises(VidarError):
         model_store.repair_model("someone/custom-weights", tmp_path)
+
+
+def test_find_model_dir_by_alias_and_repo(tmp_path: Path) -> None:
+    model_dir = tmp_path / "models" / "faster-whisper-large-v3"
+    model_dir.mkdir(parents=True)
+    assert model_store.find_model_dir("large-v3", base=tmp_path) == model_dir.resolve()
+    assert (
+        model_store.find_model_dir("Systran/faster-whisper-large-v3", base=tmp_path)
+        == model_dir.resolve()
+    )
+    assert model_store.find_model_dir("medium", base=tmp_path) is None
+
+
+def test_repair_then_check_accepts_semantic_preprocessor(
+    tmp_path: Path, monkeypatch
+) -> None:  # noqa: ANN001
+    fake_repo = "Fake/large-v3-check"
+    sizes = {
+        "model.bin": 4,
+        "config.json": 2,
+        "tokenizer.json": 1,
+        "vocabulary.json": 1,
+        "preprocessor_config.json": 1,
+    }
+    monkeypatch.setitem(model_store.KNOWN_SIZES, fake_repo, sizes)
+    model_dir = tmp_path / "check"
+    model_dir.mkdir()
+    for name, size in sizes.items():
+        if name != "preprocessor_config.json":
+            (model_dir / name).write_bytes(b"x" * size)
+
+    model_store.write_preprocessor_config(model_dir, 128)
+    assert (model_dir / "preprocessor_config.json").stat().st_size != 1
+    results = model_store.check_model(fake_repo, model_dir)
+    assert all(item.ok for item in results)

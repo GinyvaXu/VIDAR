@@ -21,7 +21,7 @@ from typing import Any
 
 import tomli_w
 from platformdirs import user_config_dir, user_data_dir
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from .errors import ConfigError
 
@@ -300,14 +300,27 @@ def load_settings(
     if path is not None:
         try:
             # utf-8-sig：容忍 Windows 编辑器写入的 BOM（否则 tomllib 解析失败）
-            data = _deep_merge(data, tomllib.loads(path.read_text(encoding="utf-8-sig")))
+            raw = path.read_text(encoding="utf-8-sig")
+        except OSError as exc:
+            raise ConfigError(f"配置文件读取失败：{path}", hint=str(exc)) from exc
+        try:
+            data = _deep_merge(data, tomllib.loads(raw))
         except tomllib.TOMLDecodeError as exc:
             raise ConfigError(f"配置文件解析失败：{path}", hint=str(exc)) from exc
     data = _deep_merge(data, _env_overrides())
     if overrides:
         data = _deep_merge(data, overrides)
 
-    settings = Settings.model_validate(data)
+    try:
+        settings = Settings.model_validate(data)
+    except ValidationError as exc:
+        first = exc.errors()[0] if exc.errors() else {}
+        location = ".".join(str(part) for part in first.get("loc", ())) or "未知项"
+        message = str(first.get("msg") or "类型不正确")
+        raise ConfigError(
+            f"配置项 {location} 类型不正确：{message}",
+            hint="对照 config.example.toml 修正类型，或删除该行使用默认值",
+        ) from exc
     settings.config_path = path
     return settings
 
@@ -321,8 +334,8 @@ def mask_secret(value: str) -> str:
 
 
 def dump_settings(settings: Settings) -> dict[str, Any]:
-    """用于 config show 的安全展示（密钥掩码）。"""
-    data = settings.model_dump(mode="json")
+    """用于 config show 的安全展示（密钥掩码；剔除 None 以便 TOML 序列化）。"""
+    data = settings.model_dump(mode="json", exclude_none=True)
     data.pop("config_path", None)
     api_key = data.get("llm", {}).get("api_key", "")
     data["llm"]["api_key"] = mask_secret(api_key)
@@ -335,7 +348,7 @@ def export_settings_dict(settings: Settings, *, protect_env_secrets: bool = True
     protect_env_secrets：环境变量提供的 LLM Key 不落盘（继续由环境变量提供），
     只有用户在设置里显式填写了不同的 Key 才会写入——与 CLI `llm setup` 的规则一致。
     """
-    data = settings.model_dump(mode="json")
+    data = settings.model_dump(mode="json", exclude_none=True)
     data.pop("config_path", None)
     env_key = llm_key_from_env()
     if protect_env_secrets and env_key and data.get("llm", {}).get("api_key") == env_key:
@@ -425,8 +438,17 @@ def write_default_config(path: Path, *, force: bool = False) -> Path:
     return path
 
 
+def _without_none(value: Any) -> Any:
+    """递归剔除 None：tomli_w 不接受 None，缺失字段由默认值兜底。"""
+    if isinstance(value, dict):
+        return {key: _without_none(item) for key, item in value.items() if item is not None}
+    if isinstance(value, list):
+        return [_without_none(item) for item in value]
+    return value
+
+
 def write_config_dict(path: Path, data: dict[str, Any]) -> Path:
     """写回配置（供 config set 等后续功能使用）。"""
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(tomli_w.dumps(data), encoding="utf-8")
+    path.write_text(tomli_w.dumps(_without_none(data)), encoding="utf-8")
     return path

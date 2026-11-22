@@ -49,11 +49,13 @@ class SettingsDialog(QDialog):
         self.pdf = QCheckBox("导出 PDF（阅读/打印）")
         self.pdf.setChecked(settings.export.pdf)
         self.pdf_style = QComboBox()
-        self.pdf_style.addItems(["newspaper", "paper"])
-        self.pdf_style.setCurrentText(settings.export.pdf_style)
+        self.pdf_style.addItem("报刊", "newspaper")
+        self.pdf_style.addItem("论文", "paper")
+        self._select_data(self.pdf_style, settings.export.pdf_style)
         self.pdf_mode = QComboBox()
-        self.pdf_mode.addItems(["full", "brief"])
-        self.pdf_mode.setCurrentText(settings.export.pdf_mode)
+        self.pdf_mode.addItem("全文", "full")
+        self.pdf_mode.addItem("精简", "brief")
+        self._select_data(self.pdf_mode, settings.export.pdf_mode)
         self.pdf_scale = QComboBox()
         for label, value in (
             ("紧凑（小字，一页更多内容）", "compact"),
@@ -124,6 +126,20 @@ class SettingsDialog(QDialog):
         layout.addWidget(buttons)
         self.test_btn.clicked.connect(self._test_connection)
 
+    def _stop_worker(self) -> None:
+        worker = self._test_worker
+        if worker is not None and worker.isRunning() and not worker.wait(2500):
+            worker.terminate()
+            worker.wait(800)
+
+    def closeEvent(self, event) -> None:  # noqa: N802, ANN001
+        self._stop_worker()
+        super().closeEvent(event)
+
+    def reject(self) -> None:
+        self._stop_worker()
+        super().reject()
+
     def _test_connection(self) -> None:
         """用当前表单值做 1 token 连通性测试（不打断对话框）。"""
         if self._test_worker is not None and self._test_worker.isRunning():
@@ -152,6 +168,9 @@ class SettingsDialog(QDialog):
     @staticmethod
     def _select_data(combo: QComboBox, value: str) -> None:
         index = combo.findData(value)
+        if index < 0 and value:
+            combo.addItem(f"自定义（{value}）", value)
+            index = combo.count() - 1
         combo.setCurrentIndex(index if index >= 0 else 0)
 
     def patch(self) -> dict[str, Any]:
@@ -180,8 +199,8 @@ class SettingsDialog(QDialog):
                 "keep_media": self.keep_media.isChecked(),
                 "screenshots": self.screenshots.isChecked(),
                 "pdf": self.pdf.isChecked(),
-                "pdf_style": self.pdf_style.currentText(),
-                "pdf_mode": self.pdf_mode.currentText(),
+                "pdf_style": self.pdf_style.currentData(),
+                "pdf_mode": self.pdf_mode.currentData(),
                 "pdf_scale": self.pdf_scale.currentData(),
                 "point_figures": self.point_figures.currentData(),
                 "docx": self.docx.isChecked(),

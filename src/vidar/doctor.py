@@ -131,29 +131,29 @@ def _check_asr(settings: Settings) -> CheckResult:
     except Exception as exc:  # noqa: BLE001 - 不同版本 API 不稳定
         detail += f"，CUDA 检测失败：{exc}"
 
+    from .model_store import check_model, find_model_dir
+
     cache_dir = _hf_cache_dir()
     model = settings.asr.model
-    model_path = Path(model)
-    if model_path.is_dir():
-        from .model_store import check_model
-
-        file_results = check_model(model_path.name, model_path)
+    found = find_model_dir(model)
+    if found is not None:
+        file_results = check_model(found.name, found)
         ok_count = sum(1 for item in file_results if item.ok)
         if ok_count == len(file_results):
-            detail += f"；本地模型 OK（{ok_count}/{len(file_results)} 个文件校验通过）"
+            detail += f"；本地模型 OK（{found}，{ok_count}/{len(file_results)} 个文件）"
         else:
             broken = [item.name for item in file_results if not item.ok]
             return CheckResult(
                 "faster-whisper",
                 STATUS_FAIL,
-                f"本地模型不完整：缺/坏 {', '.join(broken)}",
+                f"本地模型不完整：缺/坏 {', '.join(broken)}（{found}）",
                 "运行 vidar model download 修复（支持断点续传），或见 README「模型下载」",
             )
     elif cache_dir is not None and cache_dir.exists():
         if list(cache_dir.glob(f"models--*--faster-whisper-{model}*")):
             detail += f"；模型 {model} 已缓存"
         else:
-            detail += f"；模型 {model} 未下载（首次运行自动下载）"
+            detail += f"；模型 {model} 未找到（首次运行自动下载，或 vidar model download {model}）"
 
     if cuda_devices <= 0 or cuda_runtime_missing:
         return CheckResult(
@@ -221,16 +221,16 @@ def _check_bilibili() -> CheckResult:
 
 
 def _check_dirs(settings: Settings) -> CheckResult:
+    from .pipeline.context import resolve_path
+
     targets = [
         settings.paths.output_dir,
         settings.paths.work_dir,
         settings.paths.logs_dir,
     ]
+    paths = [resolve_path(Path(target)) for target in targets]
     problems: list[str] = []
-    for target in targets:
-        path = Path(target)
-        if not path.is_absolute():
-            path = Path.cwd() / path
+    for path in paths:
         try:
             path.mkdir(parents=True, exist_ok=True)
             probe = path / ".vidar_write_test"
@@ -240,13 +240,19 @@ def _check_dirs(settings: Settings) -> CheckResult:
             problems.append(f"{path}：{exc}")
     if problems:
         return CheckResult("输出目录", STATUS_FAIL, "；".join(problems), "检查磁盘与权限")
-    return CheckResult("输出目录", STATUS_OK, "、".join(str(t) for t in targets))
+    return CheckResult("输出目录", STATUS_OK, "、".join(str(path) for path in paths))
 
 
-def _check_disk() -> CheckResult:
+def _check_disk(settings: Settings) -> CheckResult:
+    from .pipeline.context import resolve_path
+
+    base = resolve_path(Path(settings.paths.output_dir))
+    probe = base
+    while not probe.exists() and probe.parent != probe:
+        probe = probe.parent
     try:
-        usage = shutil.disk_usage(Path.cwd())
-    except OSError as exc:  # cwd 被删除等
+        usage = shutil.disk_usage(probe)
+    except OSError as exc:  # 路径不可访问等
         return CheckResult("磁盘空间", STATUS_WARN, f"无法检测：{exc}")
     free_gb = usage.free / (1024**3)
     if free_gb >= 10:
@@ -276,7 +282,7 @@ def run_checks(settings: Settings, *, net: bool = False) -> list[CheckResult]:
         safe(_check_asr, settings),
         safe(_check_llm, settings, net=net),
         safe(_check_dirs, settings),
-        safe(_check_disk),
+        safe(_check_disk, settings),
     ]
     if net:
         results.append(_check_bilibili())

@@ -531,9 +531,15 @@ def model_check(
     source: str = typer.Option("hf-mirror", "--source", help="元数据源：hf-mirror | huggingface"),
 ) -> None:
     """校验模型文件完整性（大小比对，缺失/损坏一目了然）。"""
-    from .model_store import ENDPOINTS, check_model, default_model_dir, resolve_repo
+    from .model_store import (
+        ENDPOINTS,
+        check_model,
+        default_model_dir,
+        find_model_dir,
+        resolve_repo,
+    )
 
-    target = dir or default_model_dir(model)
+    target = dir or find_model_dir(model) or default_model_dir(model)
     results = check_model(model, target, endpoint=ENDPOINTS.get(source, source))
 
     def human(num: int | None) -> str:
@@ -596,9 +602,9 @@ def model_list(
     dir: Path | None = typer.Option(None, "--dir", help="模型根目录（默认 ./models）"),
 ) -> None:
     """列出常用模型（大小 / 显存建议 / 是否已安装）。"""
-    from .model_store import catalog, resolve_repo
+    from .model_store import catalog, find_model_dir, models_root
 
-    root = dir or Path.cwd() / "models"
+    root = dir or models_root()
     table = Table(title="ASR 模型清单")
     table.add_column("型号", style="cyan", no_wrap=True)
     table.add_column("大小", justify="right")
@@ -606,16 +612,21 @@ def model_list(
     table.add_column("状态", no_wrap=True)
     table.add_column("说明", style="dim")
     for spec in catalog():
-        folder = resolve_repo(spec.alias).split("/")[-1]
-        installed = (root / folder / "model.bin").exists()
+        found = (
+            find_model_dir(spec.alias, base=dir)
+            if dir is not None
+            else find_model_dir(spec.alias)
+        )
+        installed = found is not None and (found / "model.bin").exists()
         table.add_row(
             spec.alias,
             f"≈{spec.approx_mb / 1024:.1f} GB",
             f"≥{spec.vram_gb:.0f} GB",
             "[green]已安装[/green]" if installed else "—",
-            spec.note,
+            spec.note if not installed else f"已安装：{found}",
         )
     console.print(table)
+    console.print(f"[dim]模型根目录：{root}（运行时会回退到 exe 目录与共享目录）[/dim]")
     console.print(
         "[dim]安装：vidar model download <型号>　·　档位推荐：vidar model recommend[/dim]"
     )

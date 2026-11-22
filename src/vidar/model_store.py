@@ -227,6 +227,44 @@ def default_model_dir(model: str, base: Path | None = None) -> Path:
     return (base or models_root()) / name
 
 
+def model_search_roots() -> list[Path]:
+    """与运行时一致的回退顺序：当前目录 → exe 目录 → 机器级共享目录。"""
+    from .config import exe_dir, shared_data_dir
+
+    roots: list[Path] = [Path.cwd()]
+    if (folder := exe_dir()) is not None:
+        roots.append(folder)
+    with suppress(Exception):
+        roots.append(shared_data_dir())
+    seen: set[str] = set()
+    unique: list[Path] = []
+    for root in roots:
+        key = str(root.resolve()).lower()
+        if key not in seen:
+            seen.add(key)
+            unique.append(root)
+    return unique
+
+
+def find_model_dir(model: str, base: Path | None = None) -> Path | None:
+    """查找已安装的模型目录；顺序与 `asr.resolve_model_reference` 一致。"""
+    value = (model or "").strip()
+    if not value:
+        return None
+    candidate = Path(value).expanduser()
+    if candidate.is_dir():
+        return candidate.resolve()
+    if "/" in value or "\\" in value or value.startswith("."):
+        name = candidate.name
+    else:
+        name = resolve_repo(value).split("/")[-1]
+    for root in [base] if base is not None else model_search_roots():
+        for folder in (root / "models" / name, root / name):
+            if folder.is_dir():
+                return folder.resolve()
+    return None
+
+
 def expected_sizes(repo: str, *, endpoint: str | None = None) -> dict[str, int] | None:
     """优先在线取元数据，再与内置表合并兜底（?blobs=true 才会带文件大小）。"""
     sizes: dict[str, int] = {}
@@ -277,6 +315,14 @@ def check_model(model: str, model_dir: Path, *, endpoint: str | None = None) -> 
         expected = sizes.get(path.name)
         if actual is None:
             ok = False
+        elif path.name == PREPROCESSOR_FILE:
+            # 该文件会被 repair 重写，字节数可能与仓库不同；按 feature_size 语义校验
+            ok = actual > 0
+            wanted = expected_mels(model)
+            if ok and wanted is not None:
+                with suppress(Exception):
+                    payload = json.loads(path.read_text(encoding="utf-8"))
+                    ok = int(payload.get("feature_size", 0)) == wanted
         elif expected is not None:
             ok = actual == expected
         elif path.name == "model.bin":

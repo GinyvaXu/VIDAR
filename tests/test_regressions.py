@@ -76,6 +76,10 @@ def test_normalize_source_keeps_page() -> None:
 
     assert normalize_source("BV1xx411c7mD") == "https://www.bilibili.com/video/BV1xx411c7mD"
     assert (
+        normalize_source("BV1xx411c7mD?p=2")
+        == "https://www.bilibili.com/video/BV1xx411c7mD?p=2"
+    )
+    assert (
         normalize_source("www.bilibili.com/video/BV1xx411c7mD?p=2")
         == "https://www.bilibili.com/video/BV1xx411c7mD?p=2"
     )

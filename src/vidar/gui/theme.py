@@ -11,8 +11,8 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
-from PySide6.QtCore import QByteArray, Qt
-from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
+from PySide6.QtCore import QByteArray, QRectF, Qt
+from PySide6.QtGui import QColor, QGuiApplication, QIcon, QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 
 ICON_DIR = Path(__file__).resolve().parent.parent / "assets" / "icons"
@@ -28,12 +28,16 @@ PALETTES: dict[str, dict[str, str]] = {
         "panel_alt": "#F8F7FC",
         "sidebar": "#F7F5FC",
         "border": "#E9E5F2",
-        "border_strong": "#D8D3E6",
+        "border_strong": "#C9C2DA",
         "text": "#1D1834",
-        "text_muted": "#7A7392",
-        "text_faint": "#A49DB6",
+        "text_muted": "#5F5875",
+        "text_faint": "#6F6885",
         "accent": "#6C5CE7",
         "accent_hover": "#5B4BD0",
+        "accent_solid": "#6C5CE7",
+        "accent_solid_hover": "#5B4BD0",
+        "accent_strong": "#5B4BD0",
+        "control_border": "#8F87A6",
         "accent_soft": "#F1EEFF",
         "success": "#12855A",
         "success_soft": "#EAF7F1",
@@ -51,13 +55,17 @@ PALETTES: dict[str, dict[str, str]] = {
         "panel": "#1A1724",
         "panel_alt": "#211D2E",
         "sidebar": "#161320",
-        "border": "#2A2538",
-        "border_strong": "#3B3450",
+        "border": "#3A3450",
+        "border_strong": "#554D70",
         "text": "#EDEAF7",
         "text_muted": "#A49DB6",
-        "text_faint": "#6F6885",
+        "text_faint": "#9A93B0",
         "accent": "#8F7BFF",
         "accent_hover": "#A28FFF",
+        "accent_solid": "#6C5CE7",
+        "accent_solid_hover": "#5B4BD0",
+        "accent_strong": "#C4B8FF",
+        "control_border": "#6F6885",
         "accent_soft": "#26203F",
         "success": "#4ADE9B",
         "success_soft": "#173B2C",
@@ -126,23 +134,31 @@ def status_tone(status: str) -> str:
 # --------------------------------------------------------------------------- #
 # 图标（SVG → 主题色 → QIcon）
 # --------------------------------------------------------------------------- #
+def _dpr() -> float:
+    app = QGuiApplication.instance()
+    screen = app.primaryScreen() if app is not None else None
+    return float(screen.devicePixelRatio()) if screen is not None else 1.0
+
+
 @lru_cache(maxsize=256)
-def _render_icon(name: str, color: str, size: int) -> QPixmap:
+def _render_icon(name: str, color: str, size: int, dpr_key: int) -> QPixmap:
     svg_path = ICON_DIR / f"{name}.svg"
     source = svg_path.read_text(encoding="utf-8")
     source = source.replace("currentColor", color)
     renderer = QSvgRenderer(QByteArray(source.encode("utf-8")))
-    pixmap = QPixmap(size, size)
+    scale = dpr_key / 100.0
+    pixmap = QPixmap(int(size * scale), int(size * scale))
     pixmap.fill(Qt.transparent)
+    pixmap.setDevicePixelRatio(scale)
     painter = QPainter(pixmap)
-    renderer.render(painter)
+    renderer.render(painter, QRectF(0, 0, size, size))
     painter.end()
     return pixmap
 
 
 def icon(name: str, color: str, *, size: int = 20) -> QIcon:
-    """主题色图标（缓存；动画 SVG 为静态首帧）。"""
-    return QIcon(_render_icon(name, color, size))
+    """主题色图标（按屏幕 DPR 渲染，避免缩放屏发虚；动画 SVG 取静态首帧）。"""
+    return QIcon(_render_icon(name, color, size, int(round(_dpr() * 100))))
 
 
 def dot_pixmap(color: str, size: int = 8) -> QPixmap:
@@ -171,6 +187,8 @@ def app_icon() -> QIcon:
 # --------------------------------------------------------------------------- #
 def build_qss(theme: str) -> str:
     c = palette(theme)
+    icon_name = "chevron-dark.svg" if theme == "dark" else "chevron-light.svg"
+    chevron = (ICON_DIR / icon_name).as_posix()
     return f"""
 * {{ outline: none; }}
 QWidget {{
@@ -215,12 +233,12 @@ QWidget#Page {{ background: transparent; }}
     border-radius: {RADIUS["lg"]}px;
 }}
 #CardTitle {{ font-size: 13px; font-weight: 600; letter-spacing: 0.2px; }}
-#CardHint {{ color: {c["text_faint"]}; font-size: 10.5px; }}
+#CardHint {{ color: {c["text_muted"]}; font-size: 11px; }}
 #PageTitle {{ font-size: 24px; font-weight: 650; letter-spacing: -0.3px; }}
 #HeroTitle {{ font-size: 23px; font-weight: 650; letter-spacing: -0.3px; }}
 #PageSub {{ color: {c["text_muted"]}; font-size: 11.5px; }}
 #Muted {{ color: {c["text_muted"]}; }}
-#Faint {{ color: {c["text_faint"]}; font-size: 10.5px; }}
+#Faint {{ color: {c["text_faint"]}; font-size: 11px; }}
 #Kicker {{ color: {c["text_faint"]}; font-size: 10px; letter-spacing: 1.5px; }}
 #Banner {{
     background: {c["accent_soft"]}; border: 1px solid {c["border"]};
@@ -228,7 +246,7 @@ QWidget#Page {{ background: transparent; }}
 }}
 #Chip {{
     background: {c["panel_alt"]}; border: 1px solid {c["border"]};
-    border-radius: 999px; padding: 4px 10px; color: {c["text_muted"]}; font-size: 10.5px;
+    border-radius: 999px; padding: 4px 10px; color: {c["text_muted"]}; font-size: 11px;
 }}
 #ErrorCard {{
     background: {c["danger_soft"]};
@@ -254,20 +272,23 @@ QPushButton:disabled {{
     color: {c["text_faint"]}; border-color: {c["border"]}; background: {c["panel_alt"]};
 }}
 QPushButton#Primary {{
-    background: {c["accent"]}; border: 1px solid {c["accent"]};
+    background: {c["accent_solid"]}; border: 1px solid {c["accent_solid"]};
     color: #FFFFFF; font-weight: 600; padding: 7px 16px;
 }}
 QPushButton#Primary:hover {{
-    background: {c["accent_hover"]}; border-color: {c["accent_hover"]};
+    background: {c["accent_solid_hover"]}; border-color: {c["accent_solid_hover"]};
 }}
 QPushButton#Primary:disabled {{
     background: {c["border_strong"]}; border-color: {c["border_strong"]}; color: {c["panel"]};
 }}
 QPushButton#Soft {{
     background: {c["accent_soft"]}; border: 1px solid transparent;
-    color: {c["accent"]}; font-weight: 600;
+    color: {c["accent_strong"]}; font-weight: 600;
 }}
 QPushButton#Soft:hover {{ background: {c["accent_soft"]}; border-color: {c["accent"]}; }}
+QPushButton#Soft:focus {{ border: 1px solid {c["accent"]}; }}
+QPushButton#Ghost:focus {{ background: {c["accent_soft"]}; color: {c["accent"]}; }}
+QPushButton#Danger:focus {{ border: 1px solid {c["danger"]}; }}
 QPushButton#Ghost {{
     background: transparent; border: none; color: {c["text_muted"]}; padding: 6px 9px;
 }}
@@ -289,6 +310,11 @@ QLineEdit, QComboBox, QPlainTextEdit, QTextEdit, QSpinBox {{
     border-radius: {RADIUS["sm"]}px; padding: 8px 11px;
     selection-background-color: {c["accent"]}; selection-color: #FFFFFF;
 }}
+QComboBox {{ padding-right: 26px; }}
+QComboBox::down-arrow {{
+    image: url({chevron}); width: 12px; height: 12px; margin-right: 6px;
+}}
+QComboBox::down-arrow:on {{ image: url({chevron}); }}
 QLineEdit:hover, QComboBox:hover, QPlainTextEdit:hover {{ border-color: {c["border_strong"]}; }}
 QLineEdit:focus, QComboBox:focus, QPlainTextEdit:focus, QTextEdit:focus {{
     border: 1px solid {c["accent"]}; background: {c["panel"]};
@@ -316,7 +342,7 @@ QTableWidget {{ alternate-background-color: {c["panel_alt"]}; }}
 QHeaderView::section {{
     background: transparent; border: none;
     border-bottom: 1px solid {c["border"]};
-    padding: 7px 8px; color: {c["text_faint"]}; font-size: 10.5px; font-weight: 600;
+    padding: 7px 8px; color: {c["text_muted"]}; font-size: 11px; font-weight: 600;
 }}
 QTableWidget::item {{
     padding: 7px 8px; border-bottom: 1px solid {c["border"]};
@@ -330,7 +356,7 @@ QListWidget#HistoryList::item {{
 }}
 QListWidget#HistoryList::item:hover {{ background: {c["hover"]}; }}
 QListWidget#HistoryList::item:selected {{
-    background: {c["panel"]}; border: 1px solid {c["border"]}; color: {c["text"]};
+    background: {c["accent_soft"]}; color: {c["text"]};
 }}
 
 /* ---- 进度条 ---- */
@@ -359,7 +385,7 @@ QToolTip {{
 }}
 QCheckBox {{ spacing: 8px; color: {c["text"]}; }}
 QCheckBox::indicator {{
-    width: 16px; height: 16px; border: 1px solid {c["border_strong"]};
+    width: 16px; height: 16px; border: 1px solid {c["control_border"]};
     border-radius: 5px; background: {c["panel"]};
 }}
 QCheckBox::indicator:checked {{ background: {c["accent"]}; border-color: {c["accent"]}; }}

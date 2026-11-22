@@ -14,8 +14,9 @@ def normalize_source(source: str) -> str:
     bvid = parse_bvid(source)
     lowered = source.lower()
     if bvid and "http" not in lowered and "/" not in source:
-        # 纯 BV 号（无路径/查询参数）才走规范 URL；带 ?p=2 等参数的原样补 https
-        return f"https://www.bilibili.com/video/{bvid}"
+        # 纯 BV 号走规范 URL；带 ?p=2 等参数时保留查询串，避免 P2 被当成 P1
+        suffix = "?" + source.split("?", 1)[1] if "?" in source else ""
+        return f"https://www.bilibili.com/video/{bvid}{suffix}"
     if not lowered.startswith("http"):
         if "bilibili.com" in lowered or "b23.tv" in lowered:
             return "https://" + source
